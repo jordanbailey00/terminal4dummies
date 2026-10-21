@@ -1,7 +1,6 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { Footer, Header } from './components/Header';
+import { Header } from './components/Header';
 import { matchPath, useLocation } from './router';
-import { Home } from './pages/Home';
 import { Learn } from './pages/Learn';
 import { NotFound } from './pages/NotFound';
 import { Glossary } from './pages/Glossary';
@@ -15,7 +14,7 @@ const Reference = lazy(() => import('./pages/Reference').then((m) => ({ default:
 function Loading() {
   return (
     <div className="page-loading" role="status">
-      <span className="d-cursor" /> Loading…
+      loading…
     </div>
   );
 }
@@ -25,8 +24,7 @@ export function App() {
   let page: ReactNode;
   let fullBleed = false;
   let params: Record<string, string> | null;
-  if (pathname === '/') page = <Home />;
-  else if (matchPath('/learn', pathname)) page = <Learn />;
+  if (pathname === '/' || matchPath('/learn', pathname)) page = <Learn />;
   else if ((params = matchPath('/learn/:id', pathname))) {
     page = <LessonPage lessonId={params.id} />;
     fullBleed = true;
@@ -45,7 +43,6 @@ export function App() {
       <main id="main" className={fullBleed ? 'main-full' : undefined}>
         <Suspense fallback={<Loading />}>{page}</Suspense>
       </main>
-      {!fullBleed && <Footer />}
     </>
   );
 }

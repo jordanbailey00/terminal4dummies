@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { IconSearch } from '../components/Icons';
 import { Markdown } from '../components/Markdown';
 import { usePageTitle } from '../components/usePageTitle';
 import { navigate } from '../router';
@@ -18,12 +17,13 @@ export function Glossary() {
     .filter((t) => !q || t.term.toLowerCase().includes(q) || t.aka?.some((a) => a.toLowerCase().includes(q)) || t.def.toLowerCase().includes(q));
   const letters = Array.from(new Set(terms.map((t) => t.term[0].toUpperCase())));
   return (
-    <div className="page page-narrow glossary">
-      <h1>Glossary</h1>
-      <p className="lead">The words you'll meet on the command line, explained without jargon.</p>
-      <div className="ref-search">
-        <IconSearch />
-        <input type="search" placeholder="Search terms…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search the glossary" />
+    <div className="page glossary">
+      <div className="page-head">
+        <h1>Glossary</h1>
+        <p>Terms used on the command line and in the lessons.</p>
+      </div>
+      <div className="search">
+        <input type="search" placeholder="search terms" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search the glossary" />
       </div>
       <nav className="letter-index" aria-label="Jump to letter">
         {letters.map((l) => (

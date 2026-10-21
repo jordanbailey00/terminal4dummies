@@ -187,11 +187,6 @@ export function TerminalView({ backend, system, initialTitle = 'Terminal', actio
   return (
     <div className={`term-window ${className ?? ''}`} onMouseDown={() => setTimeout(() => termRef.current?.focus(), 0)}>
       <div className="term-titlebar">
-        <span className="term-dots" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-        </span>
         <span className="term-title" title={title}>
           {title}
         </span>

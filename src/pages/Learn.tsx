@@ -1,75 +1,64 @@
-import { IconArrowRight, IconCheck, IconClock } from '../components/Icons';
 import { usePageTitle } from '../components/usePageTitle';
 import { LESSONS, MODULES } from '../lessons';
-import { Link } from '../router';
+import { Link, useLocation } from '../router';
 import { useProgress } from '../state/progress';
 
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** The list of all lessons (also the home page). */
 export function Learn() {
-  usePageTitle('Lessons');
+  const { pathname } = useLocation();
+  usePageTitle(pathname === '/' ? null : 'Lessons');
   const progress = useProgress();
   const doneCount = LESSONS.filter((l) => progress.lessons[l.id]?.done).length;
-  const nextLesson = LESSONS.find((l) => !progress.lessons[l.id]?.done) ?? LESSONS[0];
-  const started = doneCount > 0 || Object.keys(progress.lessons).length > 0;
+  const next = LESSONS.find((l) => !progress.lessons[l.id]?.done);
+  const started = Object.keys(progress.lessons).length > 0;
   return (
-    <div className="page learn-page">
-      <header className="learn-head">
-        <div>
-          <h1>Lessons</h1>
-          <p className="lead">
-            {LESSONS.length} short, hands-on lessons that take you from your very first command to writing your own scripts. Each one runs in a real-feeling terminal and checks your work as you go.
-          </p>
-        </div>
-        <div className="learn-cta card">
-          <div className="faint">{started ? 'Pick up where you left off' : 'Start at the beginning'}</div>
-          <strong>{nextLesson.title}</strong>
-          <div className="progress" aria-label={`${doneCount} of ${LESSONS.length} lessons complete`}>
-            <div className="progress-bar" style={{ width: `${(doneCount / LESSONS.length) * 100}%` }} />
-          </div>
-          <div className="faint">
-            {doneCount} of {LESSONS.length} lessons complete
-          </div>
-          <Link className="btn btn-primary" to={`/learn/${nextLesson.id}`}>
-            {started ? 'Continue' : 'Start learning'} <IconArrowRight />
+    <div className="page">
+      <div className="page-head">
+        <h1>Lessons</h1>
+        <p className="index-intro">
+          Each lesson explains a few commands next to a simulated Linux terminal (Ubuntu, bash) where you try them. Steps are checked as you type. Progress is saved in this browser.
+        </p>
+      </div>
+      <div className="index-status">
+        <span>
+          {doneCount}/{LESSONS.length} done
+        </span>
+        {next && (
+          <Link to={`/learn/${next.id}`}>
+            {started ? 'continue' : 'start'}: {pad(LESSONS.indexOf(next) + 1)} {next.title} →
           </Link>
-        </div>
-      </header>
+        )}
+      </div>
       {MODULES.map((m, mi) => (
         <section key={m.id} className="module">
           <div className="module-head">
-            <span className="module-num">{String(mi + 1).padStart(2, '0')}</span>
-            <div>
-              <h2>{m.title}</h2>
-              <p className="muted">{m.description}</p>
-            </div>
+            <h2>
+              <span className="num">{pad(mi + 1)}</span>
+              {m.title}
+            </h2>
+            <p>{m.description}</p>
           </div>
-          <div className="lesson-grid">
+          <ol className="lesson-list">
             {m.lessons.map((l) => {
               const p = progress.lessons[l.id];
-              const status = p?.done ? 'done' : p && p.steps.length ? 'started' : 'new';
+              const state = p?.done ? '✓' : p && p.steps.length ? `${p.steps.length}/${l.steps.length}` : '';
               return (
-                <Link key={l.id} to={`/learn/${l.id}`} className={`lesson-card ${status}`}>
-                  <div className="lesson-card-top">
-                    <span className="lesson-card-num">{String(LESSONS.indexOf(l) + 1).padStart(2, '0')}</span>
-                    {status === 'done' ? (
-                      <span className="badge badge-accent">
-                        <IconCheck /> Done
-                      </span>
-                    ) : status === 'started' ? (
-                      <span className="badge">
-                        {p!.steps.length}/{l.steps.length} steps
-                      </span>
-                    ) : (
-                      <span className="badge">
-                        <IconClock /> {l.minutes} min
-                      </span>
-                    )}
-                  </div>
-                  <h3>{l.title}</h3>
-                  <p>{l.summary}</p>
-                </Link>
+                <li key={l.id}>
+                  <Link to={`/learn/${l.id}`} className="lesson-row">
+                    <span className="num">{pad(LESSONS.indexOf(l) + 1)}</span>
+                    <span className="title">{l.title}</span>
+                    <span className="summary">{l.summary}</span>
+                    <span className="mins">{l.minutes} min</span>
+                    <span className={`state${p?.done ? ' done' : ''}`} aria-label={p?.done ? 'done' : state ? `${state} steps` : 'not started'}>
+                      {state}
+                    </span>
+                  </Link>
+                </li>
               );
             })}
-          </div>
+          </ol>
         </section>
       ))}
     </div>

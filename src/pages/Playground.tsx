@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { createSystem } from '../shell';
-import { IconReset } from '../components/Icons';
 import { Markdown } from '../components/Markdown';
 import { TerminalView } from '../terminal/TerminalView';
 import { createLiveSession, useLiveSession } from '../terminal/useSession';
@@ -92,13 +91,11 @@ export function Playground() {
 
   return (
     <div className="playground">
-      <div className="playground-head">
-        <div>
-          <h1>Playground</h1>
-          <p className="muted">A free practice computer. Try anything; your files stay in this browser between visits.</p>
-        </div>
-        <div className="ideas" aria-label="Ideas to try">
-          <span className="faint">Try:</span>
+      <div className="playground-bar">
+        <h1 className="visually-hidden">Playground</h1>
+        <span>files are kept in this browser</span>
+        <div className="ideas" aria-label="Example commands">
+          <span>try:</span>
           {IDEAS.map((i) => (
             <button key={i} type="button" className="idea" onClick={() => type(i)}>
               {i}
@@ -116,7 +113,7 @@ export function Playground() {
             onReady={(t) => (termRef.current = t)}
             actions={
               <button type="button" onClick={reset} title="Erase everything and start fresh">
-                <IconReset /> Reset
+                reset
               </button>
             }
           />
@@ -125,9 +122,9 @@ export function Playground() {
       {tip && (
         <div className={`coach-tip playground-tip ${tip.kind}`} role="status">
           <div className="coach-head">
-            <strong>{tip.kind === 'error' ? `What happened? ${tip.title}` : tip.title}</strong>
+            <strong>{tip.kind === 'error' ? `what happened? ${tip.title}` : tip.title}</strong>
             <button type="button" className="coach-close" onClick={() => setTip(null)} aria-label="Dismiss">
-              ×
+              dismiss
             </button>
           </div>
           <Markdown source={tip.body} onRun={type} />

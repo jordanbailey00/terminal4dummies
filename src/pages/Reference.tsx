@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { IconSearch, IconTerminal } from '../components/Icons';
 import { Markdown } from '../components/Markdown';
 import { usePageTitle } from '../components/usePageTitle';
 import { Link, navigate, useLocation } from '../router';
@@ -151,14 +150,15 @@ export function Reference() {
 
   return (
     <div className="page ref-page">
-      <h1>Command reference</h1>
-      <p className="lead">
-        Every command available in the practice terminal, explained for humans. In the terminal itself, <code>man NAME</code> shows the full manual and <code>NAME --help</code> a quick summary.
-      </p>
-      <div className="ref-search">
-        <IconSearch />
-        <input type="search" placeholder="Search commands, e.g. copy, search, ls…" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search commands" />
-        <span className="faint">{filtered.length} commands</span>
+      <div className="page-head">
+        <h1>Commands</h1>
+        <p>
+          Everything installed in the practice terminal. In the terminal itself, <code>man NAME</code> shows the full manual and <code>NAME --help</code> a short summary.
+        </p>
+      </div>
+      <div className="search">
+        <input type="search" placeholder="search commands (copy, ls, permissions…)" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search commands" />
+        <span className="faint">{filtered.length}</span>
       </div>
       <div className="ref-layout">
         <nav className="ref-toc" aria-label="Categories">
@@ -181,10 +181,9 @@ export function Reference() {
                 return (
                   <article key={e.name} id={`cmd-${e.name}`} className={`ref-item ${isOpen ? 'open' : ''}`}>
                     <button type="button" className="ref-summary" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : e.name)}>
-                      <code className="ref-name">{e.name}</code>
+                      <span className="ref-name">{e.name}</span>
                       <span className="ref-desc">{e.summary}</span>
-                      {e.builtin && <span className="badge">builtin</span>}
-                      {e.install && <span className="badge">install</span>}
+                      <span className="ref-tag">{e.builtin ? 'builtin' : e.install ? 'not installed' : ''}</span>
                     </button>
                     {isOpen && (
                       <div className="ref-body">
@@ -192,25 +191,17 @@ export function Reference() {
                         <Markdown source={firstParagraph(e.description)} />
                         {e.description.split(/\n\s*\n/).length > 1 && (
                           <details>
-                            <summary>More details</summary>
+                            <summary>more</summary>
                             <Markdown source={e.description.split(/\n\s*\n/).slice(1).join('\n\n')} />
                           </details>
                         )}
-                        {e.tip && (
-                          <div className="callout callout-tip">
-                            <div className="callout-body">
-                              <strong>Tip:</strong> {e.tip}
-                            </div>
-                          </div>
-                        )}
+                        {e.tip && <p className="ref-note">tip: {e.tip}</p>}
                         {e.install && (
-                          <div className="callout">
-                            <div className="callout-body">
-                              Not installed by default. Install it with <code>sudo apt install {e.install}</code>.
-                            </div>
-                          </div>
+                          <p className="ref-note">
+                            Not installed by default: <code>sudo apt install {e.install}</code>
+                          </p>
                         )}
-                        {e.alsoBuiltin && <p className="faint">bash also has a built-in version of {e.name}; that is the one you normally use.</p>}
+                        {e.alsoBuiltin && <p className="ref-note">bash also has a built-in {e.name}; that is the one you normally use.</p>}
                         {e.options.length > 0 && (
                           <table className="ref-options">
                             <thead>
@@ -238,8 +229,8 @@ export function Reference() {
                               <div key={x.cmd} className="ref-example">
                                 <code>{x.cmd}</code>
                                 <span className="muted">{x.desc}</span>
-                                <button type="button" className="btn btn-sm btn-ghost" onClick={() => navigate(`/playground?cmd=${encodeURIComponent(x.cmd)}`)} title="Open the playground with this command typed in">
-                                  <IconTerminal /> Try it
+                                <button type="button" className="btn" onClick={() => navigate(`/playground?cmd=${encodeURIComponent(x.cmd)}`)} title="Open the playground with this command typed in">
+                                  try
                                 </button>
                               </div>
                             ))}
@@ -247,7 +238,7 @@ export function Reference() {
                         )}
                         {e.seeAlso.length > 0 && (
                           <p className="ref-see">
-                            See also:{' '}
+                            see also:{' '}
                             {e.seeAlso.map((s, i) => (
                               <span key={s}>
                                 {i > 0 && ', '}

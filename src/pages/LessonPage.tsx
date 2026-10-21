@@ -1,6 +1,5 @@
 import type { Terminal } from '@xterm/xterm';
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { IconArrowLeft, IconArrowRight, IconCheck, IconClock, IconReset, IconTerminal, IconBook } from '../components/Icons';
 import { Markdown } from '../components/Markdown';
 import { usePageTitle } from '../components/usePageTitle';
 import { lessonById, moduleOf, neighbours, LESSONS } from '../lessons';
@@ -147,38 +146,35 @@ function LessonView({ lesson }: { lesson: Lesson }) {
     <div className={`lesson-layout show-${mobileTab}`}>
       <div className="lesson-tabs" role="tablist" aria-label="Lesson or terminal">
         <button type="button" role="tab" aria-selected={mobileTab === 'lesson'} className={mobileTab === 'lesson' ? 'active' : ''} onClick={() => setMobileTab('lesson')}>
-          <IconBook /> Lesson
+          lesson
         </button>
         <button type="button" role="tab" aria-selected={mobileTab === 'terminal'} className={mobileTab === 'terminal' ? 'active' : ''} onClick={() => setMobileTab('terminal')}>
-          <IconTerminal /> Terminal
+          terminal
         </button>
       </div>
       <section className="lesson-panel" ref={panelRef} aria-label="Lesson">
         <div className="lesson-crumbs">
-          <Link to="/learn" className="crumb-link">
-            <IconArrowLeft /> All lessons
-          </Link>
+          <Link to="/learn">← lessons</Link>
           <span className="faint">
-            {mod.title} · {indexInModule}/{mod.lessons.length}
+            {mod.title} {indexInModule}/{mod.lessons.length}
           </span>
         </div>
         <h1 className="lesson-title">
-          <span className="lesson-num">{String(lessonNumber).padStart(2, '0')}</span> {lesson.title}
+          <span className="num">{String(lessonNumber).padStart(2, '0')}</span>
+          {lesson.title}
         </h1>
         <div className="lesson-meta">
-          <span className="row">
-            <IconClock /> {lesson.minutes} min
-          </span>
-          <div className="progress" aria-label={`${completedCount} of ${lesson.steps.length} steps done`}>
+          <span>{lesson.minutes} min</span>
+          <div className="progress" aria-hidden="true">
             <div className="progress-bar" style={{ width: `${(completedCount / lesson.steps.length) * 100}%` }} />
           </div>
-          <span className="faint">
-            {completedCount}/{lesson.steps.length}
+          <span>
+            {completedCount}/{lesson.steps.length} steps
           </span>
         </div>
         <Markdown source={lesson.intro} onRun={typeCommand} onNavigate={(h) => navigate(h)} className="lesson-intro" />
 
-        <h2 className="steps-heading">Your turn</h2>
+        <h2 className="steps-heading">Steps</h2>
         <ol className="steps">
           {lesson.steps.map((s, i) => (
             <StepItem
@@ -196,10 +192,8 @@ function LessonView({ lesson }: { lesson: Lesson }) {
         </ol>
 
         {done && (
-          <div className="lesson-complete card">
-            <div className="complete-badge">
-              <IconCheck /> Lesson complete
-            </div>
+          <section className="lesson-complete">
+            <div className="complete-label">✓ lesson complete</div>
             <Markdown source={lesson.recap} onRun={typeCommand} />
             {lesson.cheatsheet && (
               <table className="cheatsheet">
@@ -221,34 +215,21 @@ function LessonView({ lesson }: { lesson: Lesson }) {
                 <Markdown source={lesson.realWorld} />
               </details>
             )}
-            <div className="row">
-              {next ? (
-                <Link to={`/learn/${next.id}`} className="btn btn-primary btn-lg">
-                  Next: {next.title} <IconArrowRight />
-                </Link>
-              ) : (
-                <Link to="/learn" className="btn btn-primary btn-lg">
-                  Back to all lessons
-                </Link>
-              )}
-              <span className="faint">Or keep experimenting in the terminal.</span>
-            </div>
-          </div>
+            {next ? (
+              <Link to={`/learn/${next.id}`} className="btn btn-accent">
+                next: {next.title} →
+              </Link>
+            ) : (
+              <Link to="/learn" className="btn btn-accent">
+                all lessons
+              </Link>
+            )}
+          </section>
         )}
 
         <nav className="lesson-nav" aria-label="Lesson navigation">
-          {prev ? (
-            <Link to={`/learn/${prev.id}`} className="btn btn-ghost">
-              <IconArrowLeft /> {prev.title}
-            </Link>
-          ) : (
-            <span />
-          )}
-          {next && (
-            <Link to={`/learn/${next.id}`} className="btn btn-ghost">
-              {next.title} <IconArrowRight />
-            </Link>
-          )}
+          {prev ? <Link to={`/learn/${prev.id}`}>← {prev.title}</Link> : <span />}
+          {next && <Link to={`/learn/${next.id}`}>{next.title} →</Link>}
         </nav>
       </section>
       <section className="lesson-term" aria-label="Terminal">
@@ -261,7 +242,7 @@ function LessonView({ lesson }: { lesson: Lesson }) {
             onReady={(t) => (termRef.current = t)}
             actions={
               <button type="button" onClick={reset} title="Start this lesson over">
-                <IconReset /> Reset
+                reset
               </button>
             }
           />
@@ -270,7 +251,7 @@ function LessonView({ lesson }: { lesson: Lesson }) {
       </section>
       {toast && mobileTab === 'terminal' && (
         <button type="button" className="step-toast" onClick={() => setMobileTab('lesson')}>
-          {toast} <span className="faint">View lesson</span>
+          {toast} <span className="faint">· view lesson</span>
         </button>
       )}
     </div>
@@ -303,7 +284,7 @@ function StepItem({
   return (
     <li className={`step ${state}${justDone ? ' just-done' : ''}`} aria-current={state === 'current' ? 'step' : undefined}>
       <div className="step-marker" aria-hidden="true">
-        {state === 'done' ? <IconCheck /> : index + 1}
+        {state === 'done' ? '✓' : `${index + 1}.`}
       </div>
       <div className="step-content">
         <h3 className="step-title">
@@ -315,23 +296,23 @@ function StepItem({
             <Markdown source={step.instruction} onRun={onRun} />
             <div className="step-actions">
               {step.hint && (
-                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setHint((h) => !h)} aria-expanded={hint}>
-                  {hint ? 'Hide hint' : 'Need a hint?'}
+                <button type="button" className="btn" onClick={() => setHint((h) => !h)} aria-expanded={hint}>
+                  {hint ? 'hide hint' : 'hint'}
                 </button>
               )}
               <button
                 type="button"
-                className="btn btn-sm btn-ghost"
+                className="btn"
                 onClick={() => {
                   if (single) onRun(single);
                   else setShown((v) => !v);
                 }}
               >
-                {single ? 'Type it for me' : shown ? 'Hide solution' : 'Show me'}
+                {single ? 'type it for me' : shown ? 'hide solution' : 'show solution'}
               </button>
               {(hint || shown) && (
-                <button type="button" className="btn btn-sm btn-ghost skip" onClick={onSkip}>
-                  Skip step
+                <button type="button" className="btn skip" onClick={onSkip}>
+                  skip step
                 </button>
               )}
             </div>
@@ -350,9 +331,9 @@ function StepItem({
             {tip && (
               <div className={`coach-tip ${tip.kind}`} role="status">
                 <div className="coach-head">
-                  <strong>{tip.kind === 'error' ? 'What happened?' : tip.title}</strong>
+                  <strong>{tip.kind === 'error' ? 'what happened?' : tip.title}</strong>
                   <button type="button" className="coach-close" onClick={onDismissTip} aria-label="Dismiss">
-                    ×
+                    dismiss
                   </button>
                 </div>
                 {tip.kind === 'error' && <div className="coach-title">{tip.title}</div>}

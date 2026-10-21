@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from '../router';
 import { readPrefs, writePrefs } from '../state/prefs';
-import { IconMenu, IconMoon, IconSun } from './Icons';
 
 export function applyTheme(theme: 'system' | 'light' | 'dark') {
   const root = document.documentElement;
@@ -15,69 +14,50 @@ function effectiveDark(theme: 'system' | 'light' | 'dark'): boolean {
 }
 
 const NAV = [
-  { to: '/learn', label: 'Lessons' },
-  { to: '/playground', label: 'Playground' },
-  { to: '/reference', label: 'Commands' },
-  { to: '/glossary', label: 'Glossary' },
+  { to: '/learn', label: 'lessons', match: ['/', '/learn'] },
+  { to: '/playground', label: 'playground', match: ['/playground'] },
+  { to: '/reference', label: 'commands', match: ['/reference'] },
+  { to: '/glossary', label: 'glossary', match: ['/glossary'] },
 ];
 
 export function Header() {
   const { pathname } = useLocation();
-  const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState(() => readPrefs().theme);
 
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
 
-  useEffect(() => setOpen(false), [pathname]);
-
+  const dark = effectiveDark(theme);
   const toggleTheme = () => {
-    const next = effectiveDark(theme) ? 'light' : 'dark';
+    const next = dark ? 'light' : 'dark';
     writePrefs({ theme: next });
     setTheme(next);
   };
 
   return (
     <header className="site-header">
-      <Link to="/" className="brand" aria-label="terminal4dummies home">
-        <span className="brand-mark">&gt;_</span>
-        <span>
-          terminal<span className="brand-4">4</span>dummies
+      <Link to="/" className="brand" aria-label="terminal4dummies: lessons">
+        <span className="brand-long">
+          terminal<b>4</b>dummies
+        </span>
+        <span className="brand-short">
+          t<b>4</b>d
         </span>
       </Link>
-      <nav className={`site-nav ${open ? 'open' : ''}`} aria-label="Main">
-        {NAV.map((n) => (
-          <Link key={n.to} to={n.to} className={pathname === n.to || pathname.startsWith(n.to + '/') ? 'active' : undefined}>
-            {n.label}
-          </Link>
-        ))}
+      <nav className="site-nav" aria-label="Main">
+        {NAV.map((n) => {
+          const active = n.match.some((m) => pathname === m || (m !== '/' && pathname.startsWith(m + '/')));
+          return (
+            <Link key={n.to} to={n.to} className={active ? 'active' : undefined} aria-current={active ? 'page' : undefined}>
+              {n.label}
+            </Link>
+          );
+        })}
       </nav>
-      <span className="header-spacer" />
-      <button type="button" className="icon-btn" onClick={toggleTheme} aria-label={effectiveDark(theme) ? 'Switch to light theme' : 'Switch to dark theme'} title="Toggle light/dark">
-        {effectiveDark(theme) ? <IconSun /> : <IconMoon />}
-      </button>
-      <button type="button" className="icon-btn menu-btn" onClick={() => setOpen((o) => !o)} aria-label="Menu" aria-expanded={open}>
-        <IconMenu />
+      <button type="button" className="theme-btn" onClick={toggleTheme} aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}>
+        {dark ? 'light' : 'dark'}
       </button>
     </header>
-  );
-}
-
-export function Footer() {
-  return (
-    <footer className="site-footer">
-      <div className="inner">
-        <span>terminal4dummies: learn the command line by using one. Everything runs in your browser.</span>
-        <span className="row">
-          <Link to="/learn">Lessons</Link>
-          <Link to="/playground">Playground</Link>
-          <Link to="/reference">Commands</Link>
-          <a href="https://github.com/jordanbailey00/terminal4dummies" target="_blank" rel="noreferrer">
-            Source on GitHub
-          </a>
-        </span>
-      </div>
-    </footer>
   );
 }

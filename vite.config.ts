@@ -15,10 +15,10 @@ interface RouteMeta {
 
 function routes(LESSONS: Lesson[]): RouteMeta[] {
   return [
-    { path: '/learn', title: `Lessons · ${SITE}`, description: `${LESSONS.length} short, hands-on lessons that take you from your first command to writing scripts, in a realistic terminal that checks your work.` },
-    { path: '/playground', title: `Playground · ${SITE}`, description: 'A free practice Linux terminal in your browser. Try any command; nothing can break.' },
-    { path: '/reference', title: `Command reference · ${SITE}`, description: 'Every command in the practice terminal explained in plain English, with options and examples.' },
-    { path: '/glossary', title: `Glossary · ${SITE}`, description: 'Terminal and command-line jargon explained without jargon.' },
+    { path: '/learn', title: `Lessons · ${SITE}`, description: `${LESSONS.length} lessons on the Linux command line, each with a simulated terminal that checks your work.` },
+    { path: '/playground', title: `Playground · ${SITE}`, description: 'A simulated Linux terminal (Ubuntu, bash) in the browser.' },
+    { path: '/reference', title: `Command reference · ${SITE}`, description: 'Commands available in the practice terminal, with options and examples.' },
+    { path: '/glossary', title: `Glossary · ${SITE}`, description: 'Command-line terms explained.' },
     ...LESSONS.map((l) => ({ path: `/learn/${l.id}`, title: `${l.title} · ${SITE}`, description: l.summary })),
   ];
 }
