@@ -9,7 +9,7 @@ import type { Credentials } from '../vfs/fs';
 
 export async function runNestedInteractive(
   ctx: CommandContext,
-  opts: { creds?: Credentials; env?: Map<string, string>; cwd?: string; user?: string } = {},
+  opts: { creds?: Credentials; env?: Map<string, string>; cwd?: string; user?: string; login?: boolean } = {},
 ): Promise<number> {
   const sys = ctx.system;
   const tty = ctx.tty!;
@@ -39,6 +39,7 @@ export async function runNestedInteractive(
   state.vars.set('PWD', { value: state.cwd, exported: true, readonly: false, integer: false });
   state.umask = creds.uid === 0 ? 0o022 : 0o002;
   state.interactive = true;
+  state.loginShell = opts.login ?? false;
   state.options.expand_aliases = true;
   state.options.histexpand = true;
   const shell = new Shell({ system: sys, state, interactiveTree: true });

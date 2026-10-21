@@ -2,14 +2,21 @@
 
 export class ArithError extends Error {}
 
+/** A variable, or an array element name[sub] (sub is kept as text). */
+interface LValue {
+  name: string;
+  sub?: string;
+}
+
 type Node =
   | { t: 'num'; v: number }
-  | { t: 'var'; name: string }
+  | ({ t: 'var' } & LValue)
   | { t: 'unary'; op: string; e: Node }
-  | { t: 'pre'; op: '++' | '--'; name: string }
-  | { t: 'post'; op: '++' | '--'; name: string }
-  | { t: 'bin'; op: string; l: Node; r: Node }
-  | { t: 'assign'; op: string; name: string; e: Node }
+  | ({ t: 'pre'; op: '++' | '--' } & LValue)
+  | ({ t: 'post'; op: '++' | '--' } & LValue)
+  /** rpos: where the right operand starts; npos: the token after it (for error messages) */
+  | { t: 'bin'; op: string; l: Node; r: Node; rpos: number; npos: number }
+  | ({ t: 'assign'; op: string; e: Node; rpos: number } & LValue)
   | { t: 'cond'; c: Node; a: Node; b: Node }
   | { t: 'comma'; l: Node; r: Node };
 
@@ -21,7 +28,7 @@ interface Tok {
 
 const OPS = [
   '<<=', '>>=', '**', '++', '--', '<<', '>>', '<=', '>=', '==', '!=', '&&', '||', '+=', '-=', '*=', '/=', '%=', '&=', '^=', '|=',
-  '+', '-', '*', '/', '%', '<', '>', '!', '~', '&', '^', '|', '?', ':', '=', '(', ')', ',',
+  '+', '-', '*', '/', '%', '<', '>', '!', '~', '&', '^', '|', '?', ':', '=', '(', ')', ',', '[', ']',
 ];
 
 function tokenize(src: string): Tok[] {
@@ -122,7 +129,8 @@ class ArithParser {
   private fail(): never {
     const t = this.peek();
     const rest = this.src.slice(t.pos);
-    if (t.t === 'end') throw new ArithError(`syntax error: operand expected (error token is "${rest}")`);
+    // like bash, a missing operand at the end is reported from the operator before it
+    if (t.t === 'end') throw new ArithError(`syntax error: operand expected (error token is "${this.src.slice(this.toks[this.i - 1]?.pos ?? 0)}")`);
     throw new ArithError(`syntax error: invalid arithmetic operator (error token is "${rest}")`);
   }
   parse(): Node {
@@ -141,12 +149,43 @@ class ArithParser {
     }
     return l;
   }
+  /** If tokens at `i` are `[ ... ]`, the index just past `]` and the text inside. */
+  private subscriptAt(i: number): { end: number; sub: string } | null {
+    const open = this.toks[i];
+    if (!open || open.t !== 'op' || open.v !== '[') return null;
+    let depth = 0;
+    for (let j = i + 1; j < this.toks.length; j++) {
+      const t = this.toks[j];
+      if (t.t === 'end') break;
+      if (t.t === 'op' && t.v === '[') depth++;
+      if (t.t === 'op' && t.v === ']') {
+        if (depth === 0) return { end: j + 1, sub: this.src.slice(open.pos + 1, t.pos) };
+        depth--;
+      }
+    }
+    throw new ArithError(`syntax error: invalid arithmetic operator (error token is "${this.src.slice(open.pos)}")`);
+  }
+
+  /** Read `name` or `name[sub]` at the current token. */
+  private lvalue(): LValue {
+    const id = this.next();
+    const sub = this.subscriptAt(this.i);
+    if (!sub) return { name: id.v };
+    this.i = sub.end;
+    return { name: id.v, sub: sub.sub };
+  }
+
   private parseAssign(): Node {
     const t = this.peek();
-    const n2 = this.toks[this.i + 1];
-    if (t.t === 'id' && n2 && n2.t === 'op' && ASSIGN_OPS.has(n2.v)) {
-      this.i += 2;
-      return { t: 'assign', op: n2.v, name: t.v, e: this.parseAssign() };
+    if (t.t === 'id') {
+      const sub = this.subscriptAt(this.i + 1);
+      const n2 = this.toks[sub ? sub.end : this.i + 1];
+      if (n2 && n2.t === 'op' && ASSIGN_OPS.has(n2.v)) {
+        const lv = this.lvalue();
+        this.next();
+        const rpos = this.peek().pos;
+        return { t: 'assign', op: n2.v, ...lv, e: this.parseAssign(), rpos };
+      }
     }
     return this.parseTernary();
   }
@@ -170,9 +209,10 @@ class ArithParser {
       const prec = BINARY_PREC[t.v];
       if (prec === undefined || prec < minPrec) break;
       this.next();
+      const rpos = this.peek().pos;
       // ** is right-associative
       const r = this.parseBinary(t.v === '**' ? prec : prec + 1);
-      l = { t: 'bin', op: t.v, l, r };
+      l = { t: 'bin', op: t.v, l, r, rpos, npos: this.peek().pos };
     }
     return l;
   }
@@ -181,12 +221,8 @@ class ArithParser {
     if (t.t === 'op') {
       if (t.v === '++' || t.v === '--') {
         this.next();
-        const id = this.next();
-        if (id.t !== 'id') {
-          this.i--;
-          this.fail();
-        }
-        return { t: 'pre', op: t.v, name: id.v };
+        if (this.peek().t !== 'id') this.fail();
+        return { t: 'pre', op: t.v, ...this.lvalue() };
       }
       if (t.v === '-' || t.v === '+' || t.v === '!' || t.v === '~') {
         this.next();
@@ -196,16 +232,18 @@ class ArithParser {
     return this.parsePostfix();
   }
   private parsePostfix(): Node {
-    const t = this.next();
-    if (t.t === 'num') return { t: 'num', v: parseNumber(t.v) };
+    const t = this.peek();
     if (t.t === 'id') {
+      const lv = this.lvalue();
       const n = this.peek();
       if (n.t === 'op' && (n.v === '++' || n.v === '--')) {
         this.next();
-        return { t: 'post', op: n.v, name: t.v };
+        return { t: 'post', op: n.v, ...lv };
       }
-      return { t: 'var', name: t.v };
+      return { t: 'var', ...lv };
     }
+    this.next();
+    if (t.t === 'num') return { t: 'num', v: parseNumber(t.v) };
     if (t.t === 'op' && t.v === '(') {
       const e = this.parseComma();
       const close = this.next();
@@ -223,6 +261,9 @@ class ArithParser {
 export interface ArithEnv {
   get(name: string): string | undefined;
   set(name: string, value: string): void;
+  /** name[sub]: the environment decides how to evaluate the subscript. */
+  getElement?(name: string, sub: string): string | undefined;
+  setElement?(name: string, sub: string, value: string): void;
 }
 
 function toInt(n: number): number {
@@ -233,19 +274,23 @@ export function evaluateArithmetic(src: string, env: ArithEnv, depth = 0): numbe
   if (src.trim() === '') return 0;
   if (depth > 32) throw new ArithError('expression recursion level exceeded');
   const ast = new ArithParser(src).parse();
-  const readVar = (name: string): number => {
-    const v = env.get(name);
+  const readVar = (lv: LValue): number => {
+    const v = lv.sub === undefined ? env.get(lv.name) : env.getElement?.(lv.name, lv.sub);
     if (v === undefined || v === '') return 0;
     const trimmed = v.trim();
     if (/^-?[0-9]+$/.test(trimmed)) return parseInt(trimmed, 10);
     return evaluateArithmetic(trimmed, env, depth + 1);
+  };
+  const writeVar = (lv: LValue, value: number): void => {
+    if (lv.sub === undefined) env.set(lv.name, String(value));
+    else env.setElement?.(lv.name, lv.sub, String(value));
   };
   const ev = (n: Node): number => {
     switch (n.t) {
       case 'num':
         return n.v;
       case 'var':
-        return readVar(n.name);
+        return readVar(n);
       case 'unary': {
         const v = ev(n.e);
         if (n.op === '-') return -v;
@@ -254,13 +299,13 @@ export function evaluateArithmetic(src: string, env: ArithEnv, depth = 0): numbe
         return ~v;
       }
       case 'pre': {
-        const v = readVar(n.name) + (n.op === '++' ? 1 : -1);
-        env.set(n.name, String(v));
+        const v = readVar(n) + (n.op === '++' ? 1 : -1);
+        writeVar(n, v);
         return v;
       }
       case 'post': {
-        const v = readVar(n.name);
-        env.set(n.name, String(v + (n.op === '++' ? 1 : -1)));
+        const v = readVar(n);
+        writeVar(n, v + (n.op === '++' ? 1 : -1));
         return v;
       }
       case 'comma':
@@ -271,23 +316,24 @@ export function evaluateArithmetic(src: string, env: ArithEnv, depth = 0): numbe
       case 'assign': {
         let v = ev(n.e);
         if (n.op !== '=') {
-          const cur = readVar(n.name);
-          v = applyBinary(n.op.slice(0, -1), cur, v, src);
+          const cur = readVar(n);
+          v = applyBinary(n.op.slice(0, -1), cur, v, src, n.rpos, n.rpos);
         }
-        env.set(n.name, String(v));
+        writeVar(n, v);
         return v;
       }
       case 'bin': {
         if (n.op === '&&') return ev(n.l) !== 0 && ev(n.r) !== 0 ? 1 : 0;
         if (n.op === '||') return ev(n.l) !== 0 || ev(n.r) !== 0 ? 1 : 0;
-        return applyBinary(n.op, ev(n.l), ev(n.r), src);
+        return applyBinary(n.op, ev(n.l), ev(n.r), src, n.rpos, n.npos);
       }
     }
   };
   return toInt(ev(ast));
 }
 
-function applyBinary(op: string, a: number, b: number, src: string): number {
+/** rpos/npos locate the right operand and what follows it, for bash's "error token". */
+function applyBinary(op: string, a: number, b: number, src: string, rpos: number, npos: number): number {
   switch (op) {
     case '+':
       return a + b;
@@ -296,13 +342,13 @@ function applyBinary(op: string, a: number, b: number, src: string): number {
     case '*':
       return Math.trunc(a * b);
     case '/':
-      if (b === 0) throw new ArithError(`division by 0 (error token is "${lastToken(src)}")`);
+      if (b === 0) throw new ArithError(`division by 0 (error token is "${src.slice(rpos)}")`);
       return Math.trunc(a / b);
     case '%':
-      if (b === 0) throw new ArithError(`division by 0 (error token is "${lastToken(src)}")`);
+      if (b === 0) throw new ArithError(`division by 0 (error token is "${src.slice(rpos)}")`);
       return a % b;
     case '**':
-      if (b < 0) throw new ArithError(`exponent less than 0 (error token is "${lastToken(src)}")`);
+      if (b < 0) throw new ArithError(`exponent less than 0 (error token is "${npos < src.length ? src.slice(npos) : lastToken(src)}")`);
       return Math.trunc(a ** b);
     case '<<':
       return a << b;
@@ -331,6 +377,6 @@ function applyBinary(op: string, a: number, b: number, src: string): number {
 }
 
 function lastToken(src: string): string {
-  const m = /(\S+)\s*$/.exec(src);
-  return m ? m[1] : src;
+  const toks = tokenize(src);
+  return toks.length > 1 ? toks[toks.length - 2].v : src;
 }

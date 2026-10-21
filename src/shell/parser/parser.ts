@@ -6,6 +6,7 @@
 // start after the next newline, and aliases are expanded by re-reading text.
 
 import type {
+  ArrayElement,
   AndOr,
   Assignment,
   CaseClause,
@@ -26,6 +27,7 @@ import type {
   Word,
   WordPart,
 } from './ast';
+import { decodeBytes } from '../util/bytes';
 
 /** A genuine syntax error. `message` is what bash would print after "bash: ". */
 export class ParseError extends Error {
@@ -83,6 +85,7 @@ const OPERATORS = [
   '\n',
 ];
 const REDIR_OPS = new Set<string>(['<<<', '<<-', '&>>', '<<', '<>', '<&', '>>', '>&', '>|', '&>', '<', '>']);
+const DECL_BUILTINS = new Set(['declare', 'typeset', 'local', 'export', 'readonly']);
 const NOT_A_COMMAND = new Set(['then', 'else', 'elif', 'fi', 'do', 'done', 'esac', '}']);
 const COND_UNARY = new Set([
   '-a', '-b', '-c', '-d', '-e', '-f', '-g', '-h', '-k', '-p', '-r', '-s', '-t', '-u', '-w', '-x',
@@ -203,7 +206,11 @@ class Parser {
     const s = this.src;
     const p = this.pos;
     for (const op of OPERATORS) {
-      if (s.startsWith(op, p)) return op;
+      if (s.startsWith(op, p)) {
+        // `<(` and `>(` start a process substitution, which is a word
+        if ((op === '<' || op === '>') && s[p + 1] === '(') return null;
+        return op;
+      }
     }
     return null;
   }
@@ -284,7 +291,11 @@ class Parser {
       } else {
         this.error(op);
       }
-      items.push({ node, background, source: this.src.slice(start, end).trim() });
+      const save = this.pos;
+      this.skipBlanks();
+      const endsLine = this.eof() || this.src[this.pos] === '\n';
+      this.pos = save;
+      items.push({ node, background, source: this.src.slice(start, end).trim(), endsLine });
     }
     return { type: 'script', items };
   }
@@ -684,7 +695,8 @@ class Parser {
         continue;
       }
       const c = s[this.pos];
-      if (c === '(' || c === ')') {
+      // after =~ the regex may start with an unquoted group: [[ $x =~ (a|b)+ ]]
+      if ((c === '(' || c === ')') && prevOp !== '=~') {
         tokens.push({ op: c });
         this.pos++;
         continue;
@@ -844,6 +856,15 @@ class Parser {
         this.aliasNext = false;
         this.maybeExpandAlias();
       }
+      if (cmd.words.length > 0 && DECL_BUILTINS.has(cmd.words[0].raw)) {
+        // declare x=$y and local a=(1 2) are assignments, not plain words
+        const start = this.pos;
+        const decl = this.tryParseAssignment();
+        if (decl) {
+          cmd.words.push({ parts: [], raw: this.src.slice(start, this.pos), decl });
+          continue;
+        }
+      }
       const w = this.readWord();
       if (!w) break;
       cmd.words.push(w);
@@ -856,35 +877,61 @@ class Parser {
   }
 
   private tryParseAssignment(): Assignment | null {
-    const re = /([A-Za-z_][A-Za-z0-9_]*)(\+?)=/y;
+    const re = /[A-Za-z_][A-Za-z0-9_]*/y;
     re.lastIndex = this.pos;
     const m = re.exec(this.src);
     if (!m) return null;
-    this.pos += m[0].length;
-    const name = m[1];
-    const append = m[2] === '+';
-    if (this.src[this.pos] === '(') {
+    const s = this.src;
+    let i = this.pos + m[0].length;
+    let index: string | undefined;
+    if (s[i] === '[') {
+      const end = findSubscriptEnd(s, i + 1);
+      if (end === -1) return null;
+      index = s.slice(i + 1, end);
+      i = end + 1;
+    }
+    let append = false;
+    if (s[i] === '+' && s[i + 1] === '=') {
+      append = true;
+      i += 2;
+    } else if (s[i] === '=') i++;
+    else return null;
+    this.pos = i;
+    const name = m[0];
+    if (index === undefined && s[this.pos] === '(') {
       this.pos++;
-      const array: Word[] = [];
+      const array: ArrayElement[] = [];
       for (;;) {
         this.skipLinebreaks();
         if (this.eof()) this.incomplete('array');
-        if (this.src[this.pos] === ')') {
+        if (s[this.pos] === ')') {
           this.pos++;
           break;
         }
+        // [subscript]=value (or +=)
+        if (s[this.pos] === '[') {
+          const end = findSubscriptEnd(s, this.pos + 1);
+          const plus = end !== -1 && s[end + 1] === '+' && s[end + 2] === '=';
+          if (end !== -1 && (s[end + 1] === '=' || plus)) {
+            const sub = s.slice(this.pos + 1, end);
+            this.pos = end + (plus ? 3 : 2);
+            const value = this.readWord({ assignment: true }) ?? { parts: [], raw: '' };
+            array.push({ index: sub, value, append: plus });
+            continue;
+          }
+        }
         const w = this.readWord();
         if (!w) this.unexpectedHere();
-        array.push(w);
+        array.push({ index: null, value: w });
       }
       return { name, value: null, append, array };
     }
     const value = this.readWord({ assignment: true });
-    return { name, value, append };
+    return { name, value, append, index };
   }
 
   private atRedirect(): boolean {
-    const re = /[0-9]+(?=[<>])/y;
+    const re = /[0-9]+(?=[<>](?!\())/y;
     re.lastIndex = this.pos;
     if (re.test(this.src)) return true;
     const op = this.peekOperator();
@@ -893,7 +940,7 @@ class Parser {
 
   private parseRedirect(): Redirect {
     let fd: number | null = null;
-    const re = /[0-9]+(?=[<>])/y;
+    const re = /[0-9]+(?=[<>](?!\())/y;
     re.lastIndex = this.pos;
     const m = re.exec(this.src);
     if (m) {
@@ -954,6 +1001,11 @@ class Parser {
     };
     while (this.pos < this.src.length) {
       const c = this.src[this.pos];
+      if ((c === '<' || c === '>') && this.src[this.pos + 1] === '(') {
+        flush();
+        parts.push(this.parseProcSub());
+        continue;
+      }
       if (META.has(c)) break;
       if (c === '\\') {
         const n = this.src[this.pos + 1];
@@ -1170,6 +1222,17 @@ class Parser {
     return { type: 'cmdsub', body, raw: inner };
   }
 
+  private parseProcSub(): WordPart {
+    const dir = this.src[this.pos] as '<' | '>';
+    this.pos += 2;
+    const bodyStart = this.pos;
+    const body = this.parseList(new Set([')']));
+    if (this.src[this.pos] !== ')') this.unexpectedHere();
+    const raw = this.src.slice(bodyStart, this.pos);
+    this.pos++;
+    return { type: 'procsub', dir, body, raw };
+  }
+
   private parseDollar(inDQ: boolean): WordPart {
     const n = this.src[this.pos + 1];
     if (n === '(') {
@@ -1304,63 +1367,107 @@ function applyTilde(word: Word, assignment: boolean): void {
 /** Parse $'...' ANSI-C quoting. `from` points just after the opening quote. */
 export function parseAnsiC(s: string, from: number): { value: string; end: number } {
   let out = '';
+  let bytes: number[] = [];
+  const add = (t: string) => {
+    if (bytes.length) {
+      out += decodeBytes(bytes);
+      bytes = [];
+    }
+    out += t;
+  };
   let i = from;
   while (i < s.length) {
     const c = s[i];
-    if (c === "'") return { value: out, end: i + 1 };
+    if (c === "'") {
+      add('');
+      return { value: out, end: i + 1 };
+    }
     if (c === '\\' && i + 1 < s.length) {
       const n = s[i + 1];
       i += 2;
       switch (n) {
-        case 'n': out += '\n'; break;
-        case 't': out += '\t'; break;
-        case 'r': out += '\r'; break;
-        case 'a': out += '\x07'; break;
-        case 'b': out += '\b'; break;
+        case 'n': add('\n'); break;
+        case 't': add('\t'); break;
+        case 'r': add('\r'); break;
+        case 'a': add('\x07'); break;
+        case 'b': add('\b'); break;
         case 'e':
-        case 'E': out += '\x1b'; break;
-        case 'f': out += '\f'; break;
-        case 'v': out += '\v'; break;
-        case '\\': out += '\\'; break;
-        case "'": out += "'"; break;
-        case '"': out += '"'; break;
-        case '?': out += '?'; break;
+        case 'E': add('\x1b'); break;
+        case 'f': add('\f'); break;
+        case 'v': add('\v'); break;
+        case '\\': add('\\'); break;
+        case "'": add("'"); break;
+        case '"': add('"'); break;
+        case '?': add('?'); break;
         case 'x': {
           const m = /^[0-9a-fA-F]{1,2}/.exec(s.slice(i));
           if (m) {
-            out += String.fromCharCode(parseInt(m[0], 16));
+            bytes.push(parseInt(m[0], 16));
             i += m[0].length;
-          } else out += '\\x';
+          } else add('\\x');
           break;
         }
         case 'u':
         case 'U': {
           const m = (n === 'u' ? /^[0-9a-fA-F]{1,4}/ : /^[0-9a-fA-F]{1,8}/).exec(s.slice(i));
           if (m) {
-            out += String.fromCodePoint(parseInt(m[0], 16));
+            add(String.fromCodePoint(parseInt(m[0], 16)));
             i += m[0].length;
-          } else out += '\\' + n;
+          } else add('\\' + n);
           break;
         }
         default:
           if (/[0-7]/.test(n)) {
             const m = /^[0-7]{0,2}/.exec(s.slice(i))!;
-            out += String.fromCharCode(parseInt(n + m[0], 8));
+            bytes.push(parseInt(n + m[0], 8) & 255);
             i += m[0].length;
           } else {
-            out += '\\' + n;
+            add('\\' + n);
           }
       }
       continue;
     }
-    out += c;
+    add(c);
     i++;
   }
+  add('');
   return { value: out, end: -1 };
 }
 
-function badSubstitution(inner: string, line: number): never {
-  throw new ParseError(`\${${inner}}: bad substitution`, line);
+class BadSubstitution extends Error {}
+
+function badSubstitution(_inner: string, _line: number): never {
+  throw new BadSubstitution();
+}
+
+/** Index of the `]` that closes a subscript starting at `from`, or -1. */
+export function findSubscriptEnd(s: string, from: number): number {
+  let depth = 0;
+  for (let i = from; i < s.length; i++) {
+    const c = s[i];
+    if (c === '\\') {
+      i++;
+    } else if (c === "'") {
+      const e = s.indexOf("'", i + 1);
+      if (e === -1) return -1;
+      i = e;
+    } else if (c === '"') {
+      i++;
+      while (i < s.length && s[i] !== '"') {
+        if (s[i] === '\\') i++;
+        i++;
+      }
+      if (i >= s.length) return -1;
+    } else if (c === '\n') {
+      return -1;
+    } else if (c === '[') {
+      depth++;
+    } else if (c === ']') {
+      if (depth === 0) return i;
+      depth--;
+    }
+  }
+  return -1;
 }
 
 /** Split `pattern/replacement` at the first unquoted, unescaped slash. */
@@ -1392,7 +1499,17 @@ function splitReplace(s: string): [string, string | null] {
   return [s, null];
 }
 
+/** Bad substitutions are reported when the word is expanded, as in bash. */
 function parseParamInner(inner: string, line: number): ParamExpansion {
+  try {
+    return parseParamStrict(inner, line);
+  } catch (e) {
+    if (e instanceof BadSubstitution) return { name: '', op: { kind: 'bad', text: inner } };
+    throw e;
+  }
+}
+
+function parseParamStrict(inner: string, line: number): ParamExpansion {
   if (inner === '') badSubstitution(inner, line);
   let indirect = false;
   let body = inner;
@@ -1400,6 +1517,11 @@ function parseParamInner(inner: string, line: number): ParamExpansion {
     const rest = body.slice(1);
     if (/^([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!\-])$/.test(rest)) {
       return { name: rest, op: { kind: 'length' } };
+    }
+    const am = /^[A-Za-z_][A-Za-z0-9_]*\[/.exec(rest);
+    if (am) {
+      const end = findSubscriptEnd(rest, am[0].length);
+      if (end === rest.length - 1) return { name: am[0].slice(0, -1), index: rest.slice(am[0].length, end), op: { kind: 'length' } };
     }
   }
   if (body.startsWith('!') && body.length > 1) {
@@ -1409,7 +1531,15 @@ function parseParamInner(inner: string, line: number): ParamExpansion {
   const m = /^([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!\-])/.exec(body);
   if (!m) badSubstitution(inner, line);
   const name = m[1];
-  const rest = body.slice(name.length);
+  let rest = body.slice(name.length);
+  let index: string | undefined;
+  if (rest.startsWith('[') && /^[A-Za-z_]/.test(name)) {
+    const end = findSubscriptEnd(rest, 1);
+    if (end === -1) badSubstitution(inner, line);
+    index = rest.slice(1, end);
+    rest = rest.slice(end + 1);
+    if (indirect && (index === '@' || index === '*') && rest === '') return { name, index, op: { kind: 'keys' } };
+  }
   let op: ParamOp;
   if (rest === '') {
     op = { kind: 'plain' };
@@ -1460,5 +1590,5 @@ function parseParamInner(inner: string, line: number): ParamExpansion {
   } else {
     badSubstitution(inner, line);
   }
-  return { name, op, indirect };
+  return index === undefined ? { name, op, indirect } : { name, op, indirect, index };
 }

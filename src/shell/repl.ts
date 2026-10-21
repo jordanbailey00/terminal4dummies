@@ -80,7 +80,7 @@ export class Repl {
     this.tty.foreground = job;
     try {
       sh.sourceDepth++;
-      await sh.runSource(this.system.fs.readFile(path, sh.opCtx()), io);
+      await sh.runSource(this.system.fs.readFile(path, sh.opCtx()), io, { perLine: true });
     } catch (e) {
       if (!(e instanceof SignalError) && !(e instanceof ExitException)) console.error(e);
     } finally {
@@ -101,7 +101,7 @@ export class Repl {
           await this.print('There are stopped jobs.\n');
           continue;
         }
-        await this.print(this.depth > 0 ? 'logout\n' : 'exit\n');
+        await this.print(this.shell.state.loginShell ? 'logout\n' : 'exit\n');
         this.hangup();
         return this.shell.state.lastStatus;
       }
@@ -253,6 +253,8 @@ export class Repl {
   async readCommand(): Promise<string | null> {
     const st = this.shell.state;
     let buffer: string | null = null;
+    // lines of a here-document body are taken literally (no history expansion)
+    let inHeredoc = false;
     for (;;) {
       const ps = buffer === null ? st.get('PS1') ?? '$ ' : st.get('PS2') ?? '> ';
       const prompt = await this.expandPrompt(ps);
@@ -272,7 +274,7 @@ export class Repl {
         return null;
       }
       let line = r.line;
-      if (st.options.histexpand) {
+      if (st.options.histexpand && !inHeredoc) {
         try {
           const ex = expandHistory(line, this.history);
           if (ex.changed) {
@@ -292,7 +294,10 @@ export class Repl {
         parse(buffer, { aliases: st.aliases });
         return buffer;
       } catch (e) {
-        if (e instanceof IncompleteInputError) continue;
+        if (e instanceof IncompleteInputError) {
+          inHeredoc = e.reason === 'here-document';
+          continue;
+        }
         if (e instanceof ParseError) return buffer;
         throw e;
       }

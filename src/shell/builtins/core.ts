@@ -2,7 +2,7 @@
 
 import { evaluateArithmetic, ArithError } from '../arith';
 import { BreakException, ContinueException, ExitException, ReturnException } from '../control';
-import { IncompleteInputError, ParseError, parse } from '../parser/parser';
+import { IncompleteInputError, ParseError, isValidName, parse } from '../parser/parser';
 import { SignalError } from '../streams';
 import { FsError, VirtualFS } from '../vfs/fs';
 import { normalize, resolvePath, tildify } from '../vfs/path';
@@ -308,7 +308,7 @@ defineBuiltin(
         await ctx.err('There are stopped jobs.\n');
         return 1;
       }
-      await ctx.err('exit\n');
+      await ctx.err(st.loginShell ? 'logout\n' : 'exit\n');
     }
     throw new ExitException(status);
   },
@@ -318,8 +318,15 @@ defineBuiltin(
   'logout',
   { usage: 'logout [n]', summary: 'Exit a login shell.', body: 'Exits a login shell with exit status N.  Returns an error if not executed\nin a login shell.' },
   async (ctx) => {
-    await ctx.error('not login shell: use `exit\'');
-    return 1;
+    const st = ctx.sh.state;
+    if (!st.loginShell) {
+      await ctx.error('not login shell: use `exit\'');
+      return 1;
+    }
+    const a = ctx.args[0];
+    const status = a !== undefined && /^[-+]?\d+$/.test(a.trim()) ? parseInt(a, 10) & 255 : st.lastStatus;
+    if (st.interactive) await ctx.err('logout\n');
+    throw new ExitException(status);
   },
 );
 
@@ -431,7 +438,7 @@ async function sourceFile(ctx: BuiltinContext): Promise<number> {
   if (ctx.args.length > 1) st.positional = ctx.args.slice(1);
   sh.sourceDepth++;
   try {
-    return await sh.runSource(text, ctx.io);
+    return await sh.runSource(text, ctx.io, { perLine: true });
   } catch (e) {
     if (e instanceof ReturnException) return e.status;
     throw e;
@@ -492,6 +499,7 @@ defineBuiltin(
     let prompt: string | null = null;
     let nchars: number | null = null;
     let delim = '\n';
+    let arrayName: string | null = null;
     const names: string[] = [];
     const args = ctx.args;
     for (let i = 0; i < args.length; i++) {
@@ -510,7 +518,8 @@ defineBuiltin(
           else if (ch === 'p') prompt = takeArg() ?? '';
           else if (ch === 'n' || ch === 'N') nchars = parseInt(takeArg() ?? '0', 10);
           else if (ch === 'd') delim = (takeArg() ?? '\n').slice(0, 1) || '\0';
-          else if (ch === 't' || ch === 'u' || ch === 'a' || ch === 'i') takeArg();
+          else if (ch === 'a') arrayName = takeArg() ?? null;
+          else if (ch === 't' || ch === 'u' || ch === 'i') takeArg();
           else if (ch === 'e') {
             /* readline editing: ignored */
           } else {
@@ -581,7 +590,20 @@ defineBuiltin(
     if (tty && silent) await ctx.err('\n').catch(() => {});
     if (!raw) line = line.replace(/\\(.)/g, '$1');
     const ifs = sh.state.get('IFS') ?? ' \t\n';
-    if (names.length === 0) {
+    if (arrayName !== null) {
+      // read -a: every field becomes an element
+      const fields = line.trim() === '' && ifs.includes(' ') ? [] : splitForRead(line, ifs, Infinity);
+      try {
+        if (sh.state.isAssoc(arrayName)) {
+          await ctx.error(`${arrayName}: cannot convert associative to indexed array`);
+          return 1;
+        }
+        sh.state.setArray(arrayName, fields.map((f, i) => [i, f]));
+      } catch (e) {
+        await ctx.error(e instanceof Error ? e.message : String(e));
+        return 1;
+      }
+    } else if (names.length === 0) {
       sh.setVar('REPLY', line);
     } else {
       const fields = splitForRead(line, ifs, names.length);
@@ -614,6 +636,80 @@ async function readUntil(stdin: BuiltinContext['stdin'], delim: string, signal: 
     return { text: buf, eof: false };
   }
 }
+
+const MAPFILE_HELP = {
+  usage: 'mapfile [-d delim] [-n count] [-O origin] [-s count] [-t] [-u fd] [-C callback] [-c quantum] [array]',
+  summary: 'Read lines from the standard input into an indexed array variable.',
+  body:
+    'Read lines from the standard input into the indexed array variable ARRAY.\nThe variable MAPFILE is the default ARRAY.\n\nOptions:\n' +
+    '  -d delim\tUse DELIM to terminate lines, instead of newline\n  -n count\tCopy at most COUNT lines.  If COUNT is 0, all lines are copied\n' +
+    '  -O origin\tBegin assigning to ARRAY at index ORIGIN.  The default index is 0\n  -s count\tDiscard the first COUNT lines read\n' +
+    '  -t\tRemove a trailing DELIM from each line read (default newline)',
+};
+
+async function mapfileImpl(ctx: BuiltinContext): Promise<number> {
+  const sh = ctx.sh;
+  let delim = '\n';
+  let count = 0;
+  let origin: number | null = null;
+  let skip = 0;
+  let trim = false;
+  let name = 'MAPFILE';
+  const args = ctx.args;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (/^-[dnOsuCct]/.test(a)) {
+      const opt = a[1];
+      const val = () => (a.length > 2 ? a.slice(2) : args[++i]);
+      if (opt === 't') trim = true;
+      else if (opt === 'd') delim = (val() ?? '\n').slice(0, 1) || '\0';
+      else if (opt === 'n' || opt === 'O' || opt === 's' || opt === 'c') {
+        const v = val();
+        if (v === undefined || !/^[0-9]+$/.test(v)) {
+          await ctx.error(`${v ?? ''}: invalid ${opt === 'O' ? 'array origin' : opt === 'n' ? 'line count' : 'number'}`);
+          return 1;
+        }
+        const n = parseInt(v, 10);
+        if (opt === 'n') count = n;
+        else if (opt === 'O') origin = n;
+        else if (opt === 's') skip = n;
+      } else val();
+      continue;
+    }
+    name = a;
+  }
+  if (!isValidName(name)) {
+    await ctx.error(`${name}: invalid array name`);
+    return 1;
+  }
+  if (sh.state.isAssoc(name)) {
+    await ctx.error(`${name}: not an indexed array`);
+    return 1;
+  }
+  const items: [number, string][] = [];
+  let index = origin ?? 0;
+  let seen = 0;
+  for (;;) {
+    if (count > 0 && items.length >= count) break;
+    const l = await readUntil(ctx.stdin, delim, ctx.io.job.signal);
+    if (l === null) break;
+    if (seen++ < skip) continue;
+    items.push([index++, trim || l.eof ? l.text : l.text + delim]);
+    if (l.eof) break;
+  }
+  try {
+    // without -O the array is emptied first
+    if (origin === null) sh.state.setArray(name, items);
+    else sh.state.setArray(name, items, true);
+  } catch (e) {
+    await ctx.error(e instanceof Error ? e.message : String(e));
+    return 1;
+  }
+  return 0;
+}
+
+defineBuiltin('mapfile', MAPFILE_HELP, mapfileImpl);
+defineBuiltin('readarray', { ...MAPFILE_HELP, usage: MAPFILE_HELP.usage.replace('mapfile', 'readarray'), summary: 'Read lines from a file into an array variable.' }, mapfileImpl);
 
 function splitForRead(line: string, ifs: string, count: number): string[] {
   const ws = [...ifs].filter((c) => c === ' ' || c === '\t' || c === '\n').join('');

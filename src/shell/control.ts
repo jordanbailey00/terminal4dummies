@@ -2,9 +2,12 @@
 
 export class ExitException extends Error {
   readonly status: number;
-  constructor(status: number) {
+  /** Raised by a fatal expansion error (`${x:?}`, `set -u`) rather than `exit`. */
+  readonly fatal: boolean;
+  constructor(status: number, fatal = false) {
     super('exit');
     this.status = status;
+    this.fatal = fatal;
   }
 }
 export class ReturnException extends Error {
@@ -32,3 +35,12 @@ export class ContinueException extends Error {
 /** A redirection could not be set up ("bash: x: No such file or directory"). */
 export class RedirectError extends Error {}
 
+/**
+ * An expansion error ("bad substitution", "division by 0"): like bash, the
+ * shell abandons the rest of the command line (or script line) with status 1.
+ */
+export class AbortCommand extends Error {
+  constructor() {
+    super('abort');
+  }
+}

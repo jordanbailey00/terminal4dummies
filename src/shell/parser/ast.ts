@@ -9,6 +9,8 @@ export type WordPart =
   | { type: 'dq'; parts: WordPart[] }
   | { type: 'param'; param: ParamExpansion }
   | { type: 'cmdsub'; body: Script; raw: string }
+  /** <(cmd) or >(cmd): replaced by a /dev/fd path connected to cmd. */
+  | { type: 'procsub'; dir: '<' | '>'; body: Script; raw: string }
   | { type: 'arith'; expr: string }
   /** A leading ~ or ~user (only recognized in tilde-eligible positions). */
   | { type: 'tilde'; user: string };
@@ -17,6 +19,11 @@ export interface Word {
   parts: WordPart[];
   /** Original source text, used for error messages and history. */
   raw: string;
+  /**
+   * An argument of declare/local/export/readonly that looks like an
+   * assignment: expanded like one (no word splitting; arrays allowed).
+   */
+  decl?: Assignment;
 }
 
 export type ParamOp =
@@ -29,13 +36,18 @@ export type ParamOp =
   | { kind: 'trim'; side: 'prefix' | 'suffix'; greedy: boolean; pattern: Word } // # ## % %%
   | { kind: 'replace'; all: boolean; anchor: '' | '#' | '%'; pattern: Word; replacement: Word | null }
   | { kind: 'substr'; offset: string; length: string | null }
-  | { kind: 'case'; upper: boolean; all: boolean }; // ^ ^^ , ,,
+  | { kind: 'case'; upper: boolean; all: boolean } // ^ ^^ , ,,
+  | { kind: 'keys' } // ${!a[@]}
+  /** Reported when expanded, like bash ("${x!}: bad substitution"). */
+  | { kind: 'bad'; text: string };
 
 export interface ParamExpansion {
   name: string; // variable name, digit, or special (@ * # ? $ ! - 0)
   op: ParamOp;
   /** ${!name} indirection */
   indirect?: boolean;
+  /** Array subscript text: ${name[index]} (`@` and `*` mean all elements). */
+  index?: string;
 }
 
 export type RedirOp =
@@ -61,12 +73,22 @@ export interface Redirect {
   heredoc?: { body: string; expand: boolean; parsed?: Word };
 }
 
+export interface ArrayElement {
+  /** [subscript]=value; null for a plain value */
+  index: string | null;
+  value: Word;
+  /** [subscript]+=value */
+  append?: boolean;
+}
+
 export interface Assignment {
   name: string;
   value: Word | null;
   append: boolean;
+  /** name[index]=value */
+  index?: string;
   /** name=(a b c) */
-  array?: Word[];
+  array?: ArrayElement[];
 }
 
 export interface SimpleCommand {
@@ -189,6 +211,8 @@ export interface ListItem {
   background: boolean;
   /** Source text of this item (used for job names like "sleep 10 &"). */
   source: string;
+  /** Nothing else follows on the same line (scripts abort line by line). */
+  endsLine?: boolean;
 }
 
 export interface Script {

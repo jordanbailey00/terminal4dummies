@@ -1,12 +1,26 @@
 // Builtins for variables, options and aliases.
 
-import { isValidName } from '../parser/parser';
-import { ReadonlyError, type ShellOptions, type Variable } from '../state';
+import { ExpansionError, subscriptKey } from '../expand';
+import { findSubscriptEnd, isValidName } from '../parser/parser';
+import { ReadonlyError, type ShellOptions, type ShellState, type Variable } from '../state';
 import { defineBuiltin, type BuiltinContext } from './registry';
 
-/** Quote a value the way `declare -p` / `export -p` do: "value" with \ " $ ` escaped. */
+/** Quote a value the way `declare -p` / `export -p` do: "value" with \ " $ ` escaped, or $'...' for control characters. */
 function declareQuote(v: string): string {
+  if (/[\x00-\x1f\x7f]/.test(v)) return ansiQuote(v);
   return '"' + v.replace(/(["\\$`])/g, '\\$1') + '"';
+}
+
+function ansiQuote(v: string): string {
+  const named: Record<string, string> = { '\n': '\\n', '\t': '\\t', '\r': '\\r', '\x1b': '\\E', '\x07': '\\a', '\b': '\\b', '\f': '\\f', '\v': '\\v' };
+  let out = "$'";
+  for (const c of v) {
+    if (named[c]) out += named[c];
+    else if (c === "'" || c === '\\') out += '\\' + c;
+    else if (/[\x00-\x1f\x7f]/.test(c)) out += '\\' + c.charCodeAt(0).toString(8).padStart(3, '0');
+    else out += c;
+  }
+  return out + "'";
 }
 
 /** Quote for `set` output: plain if safe, otherwise single quotes or $'...'. */
@@ -21,32 +35,98 @@ export function setQuote(v: string): string {
 
 function declareFlags(v: Variable): string {
   let f = '';
+  if (v.array) f += 'a';
+  if (v.assoc) f += 'A';
   if (v.integer) f += 'i';
   if (v.readonly) f += 'r';
   if (v.exported) f += 'x';
   return f === '' ? '--' : '-' + f;
 }
 
+/** Keys of associative arrays are quoted when they contain shell syntax. */
+function keyQuote(k: string): string {
+  return k === '' || /[\s'"\\|&;()<>!{}*?[\]^$`~#=%]/.test(k) ? declareQuote(k) : k;
+}
+
+/** The value part of `declare -p` and `set` output: ="x", =([0]="a" [1]="b"), or nothing. */
+function valueText(st: ShellState, name: string, v: Variable, quote: (s: string) => string): string {
+  if (v.unset) return '';
+  if (v.array) return '=(' + st.entries(name).map(([k, val]) => `[${k}]=${declareQuote(val)}`).join(' ') + ')';
+  if (v.assoc) return '=(' + st.entries(name).map(([k, val]) => `[${keyQuote(k)}]=${declareQuote(val)} `).join('') + ')';
+  return '=' + quote(v.value);
+}
+
+export function declareLine(st: ShellState, name: string, v: Variable): string {
+  return `declare ${declareFlags(v)} ${name}${valueText(st, name, v, declareQuote)}`;
+}
+
 function sortedVars(ctx: BuiltinContext): [string, Variable][] {
   return [...ctx.sh.state.vars.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
 }
 
-async function assignOrMark(ctx: BuiltinContext, arg: string, apply: (name: string, value: string | null) => void): Promise<boolean> {
-  const eq = arg.indexOf('=');
-  const name = eq === -1 ? arg : arg.slice(0, eq).replace(/\+$/, '');
-  if (!isValidName(name)) {
+interface DeclArg {
+  name: string;
+  /** name[index]=value */
+  index?: string;
+  append: boolean;
+  /** null: no `=` (just set attributes) */
+  value: string | null;
+  /** name=(...): the text inside the parentheses */
+  compound: string | null;
+}
+
+export function parseDeclArg(arg: string): DeclArg | null {
+  const m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(arg);
+  if (!m) return null;
+  const name = m[0];
+  let i = name.length;
+  let index: string | undefined;
+  if (arg[i] === '[') {
+    const end = findSubscriptEnd(arg, i + 1);
+    if (end === -1) return null;
+    index = arg.slice(i + 1, end);
+    i = end + 1;
+  }
+  if (i === arg.length) return { name, index, append: false, value: null, compound: null };
+  let append = false;
+  if (arg.startsWith('+=', i)) {
+    append = true;
+    i += 2;
+  } else if (arg[i] === '=') i++;
+  else return null;
+  const rest = arg.slice(i);
+  if (index === undefined && rest.startsWith('(') && rest.endsWith(')')) return { name, append, value: null, compound: rest.slice(1, -1) };
+  return { name, index, append, value: rest, compound: null };
+}
+
+/**
+ * Handle one `name`, `name=value`, `name[i]=value` or `name=(...)` argument:
+ * `prepare` runs first (making locals, setting -a/-A), then the value is
+ * assigned, then `after` sets the remaining attributes.
+ */
+async function assignOrMark(
+  ctx: BuiltinContext,
+  arg: string,
+  hooks: { prepare?: (name: string) => string | null; after?: (name: string, assigned: boolean) => void } = {},
+): Promise<boolean> {
+  const d = parseDeclArg(arg);
+  if (!d || (d.index === undefined && !isValidName(d.name))) {
     await ctx.error(`\`${arg}': not a valid identifier`);
     return false;
   }
+  const sh = ctx.sh;
   try {
-    if (eq === -1) apply(name, null);
-    else {
-      let value = arg.slice(eq + 1);
-      if (arg[eq - 1] === '+') value = (ctx.sh.state.get(name) ?? '') + value;
-      apply(name, value);
+    const problem = hooks.prepare?.(d.name);
+    if (problem) {
+      await ctx.error(problem);
+      return false;
     }
+    if (d.compound !== null) await sh.assignCompound(d.name, d.compound, d.append, ctx.io);
+    else if (d.value !== null && d.index !== undefined) await sh.assignElement(d.name, d.index, d.value, d.append, ctx.io);
+    else if (d.value !== null) sh.setVar(d.name, d.append ? (sh.state.get(d.name) ?? '') + d.value : d.value);
+    hooks.after?.(d.name, d.value !== null || d.compound !== null);
   } catch (e) {
-    if (e instanceof ReadonlyError) {
+    if (e instanceof ReadonlyError || e instanceof ExpansionError) {
       await ctx.error(e.message);
       return false;
     }
@@ -77,18 +157,14 @@ defineBuiltin(
       let out = '';
       for (const [k, v] of sortedVars(ctx)) {
         if (!v.exported) continue;
-        out += `declare ${declareFlags(v)} ${k}${v.value === '' && !st.vars.get(k) ? '' : '=' + declareQuote(v.value)}\n`;
+        out += declareLine(st, k, v) + '\n';
       }
       await ctx.out(out);
       return 0;
     }
     let status = 0;
     for (const a of args) {
-      const ok = await assignOrMark(ctx, a, (name, value) => {
-        if (value !== null) ctx.sh.setVar(name, value);
-        if (unexport) st.setExported(name, false);
-        else st.setExported(name, true);
-      });
+      const ok = await assignOrMark(ctx, a, { after: (name) => st.setExported(name, !unexport) });
       if (!ok) status = 1;
     }
     return status;
@@ -114,6 +190,21 @@ defineBuiltin(
     for (const name of args) {
       if (funcs) {
         st.functions.delete(name);
+        continue;
+      }
+      const d = parseDeclArg(name);
+      if (d && d.index !== undefined && d.value === null && d.compound === null) {
+        // unset 'a[2]' removes one element; a[@] the whole array
+        const v = st.getVar(d.name);
+        if (v?.readonly) {
+          await ctx.error(`${d.name}: cannot unset: readonly variable`);
+          status = 1;
+        } else if (d.index === '@' || d.index === '*') {
+          // like bash 5.2: the array stays declared, just empty
+          if (v?.array || v?.assoc) st.setArray(d.name, []);
+          else st.vars.delete(d.name);
+        }
+        else if (v) st.unsetElement(d.name, await subscriptKey(ctx.sh, d.name, d.index, ctx.io));
         continue;
       }
       if (!isValidName(name)) {
@@ -142,17 +233,20 @@ defineBuiltin(
     const st = ctx.sh.state;
     if (args.length === 0) {
       let out = '';
-      for (const [k, v] of sortedVars(ctx)) if (v.readonly) out += `declare ${declareFlags(v)} ${k}=${declareQuote(v.value)}\n`;
+      for (const [k, v] of sortedVars(ctx)) if (v.readonly) out += declareLine(st, k, v) + '\n';
       await ctx.out(out);
       return 0;
     }
     let status = 0;
+    const arrays = ctx.args.find((a) => /^-[aAfp]+$/.test(a)) ?? '';
     for (const a of args) {
-      const ok = await assignOrMark(ctx, a, (name, value) => {
-        if (value !== null) ctx.sh.setVar(name, value);
-        const v = st.getVar(name);
-        if (v) v.readonly = true;
-        else st.vars.set(name, { value: '', exported: false, readonly: true, integer: false });
+      const ok = await assignOrMark(ctx, a, {
+        prepare: (name) => (arrays.includes('A') ? st.makeArray(name, true) : arrays.includes('a') ? st.makeArray(name, false) : null),
+        after: (name) => {
+          const v = st.getVar(name);
+          if (v) v.readonly = true;
+          else st.vars.set(name, { value: '', exported: false, readonly: true, integer: false, unset: true });
+        },
       });
       if (!ok) status = 1;
     }
@@ -189,11 +283,15 @@ async function declareImpl(ctx: BuiltinContext, isLocal: boolean): Promise<numbe
   if (args.length === 0 || on.has('p')) {
     let out = '';
     const names = args.length ? args : null;
+    const filtered = on.has('x') || on.has('r') || on.has('a') || on.has('A') || on.has('i');
     for (const [k, v] of sortedVars(ctx)) {
       if (names && !names.includes(k)) continue;
       if (on.has('x') && !v.exported) continue;
       if (on.has('r') && !v.readonly) continue;
-      out += on.has('p') || names ? `declare ${declareFlags(v)} ${k}=${declareQuote(v.value)}\n` : `${k}=${setQuote(v.value)}\n`;
+      if (on.has('a') && !v.array) continue;
+      if (on.has('A') && !v.assoc) continue;
+      if (on.has('i') && !v.integer) continue;
+      out += on.has('p') || names || filtered ? declareLine(st, k, v) + '\n' : `${k}${valueText(st, k, v, setQuote)}\n`;
     }
     if (names) {
       let status = 0;
@@ -211,20 +309,25 @@ async function declareImpl(ctx: BuiltinContext, isLocal: boolean): Promise<numbe
   }
   let status = 0;
   for (const a of args) {
-    const ok = await assignOrMark(ctx, a, (name, value) => {
-      if (isLocal || (st.funcNest > 0 && !on.has('g'))) st.makeLocal(name);
-      if (on.has('i')) {
+    const ok = await assignOrMark(ctx, a, {
+      prepare: (name) => {
+        if (isLocal || (st.funcNest > 0 && !on.has('g'))) st.makeLocal(name);
+        if (on.has('A') || on.has('a')) {
+          const problem = st.makeArray(name, on.has('A'));
+          if (problem) return problem;
+        }
+        if (!st.vars.has(name)) st.vars.set(name, { value: '', exported: false, readonly: false, integer: false, unset: true });
+        if (on.has('i')) st.getVar(name)!.integer = true;
+        return null;
+      },
+      after: (name) => {
         const v = st.getVar(name);
-        if (v) v.integer = true;
-        else st.vars.set(name, { value: '', exported: false, readonly: false, integer: true });
-      }
-      if (value !== null) ctx.sh.setVar(name, value);
-      else if (!st.vars.has(name)) st.vars.set(name, { value: '', exported: false, readonly: false, integer: on.has('i') });
-      const v = st.getVar(name)!;
-      if (on.has('x')) v.exported = true;
-      if (off.has('x')) v.exported = false;
-      if (on.has('r')) v.readonly = true;
-      if (off.has('i')) v.integer = false;
+        if (!v) return;
+        if (on.has('x')) v.exported = true;
+        if (off.has('x')) v.exported = false;
+        if (on.has('r')) v.readonly = true;
+        if (off.has('i')) v.integer = false;
+      },
     });
     if (!ok) status = 1;
   }
@@ -283,7 +386,7 @@ defineBuiltin(
     const args = ctx.args;
     if (args.length === 0) {
       let out = '';
-      for (const [k, v] of sortedVars(ctx)) out += `${k}=${setQuote(v.value)}\n`;
+      for (const [k, v] of sortedVars(ctx)) if (!v.unset) out += `${k}${valueText(st, k, v, setQuote)}\n`;
       for (const name of [...st.functions.keys()].sort()) out += st.functions.get(name)!.source + '\n';
       await ctx.out(out);
       return 0;

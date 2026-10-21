@@ -50,6 +50,30 @@ describe('interactive session', () => {
     session.dispose();
   });
 
+  it('a here-document typed at the prompt keeps ! lines as they are', async () => {
+    const { term, session } = await startSession();
+    term.type("cat > hello.sh <<'EOF'\r");
+    await settle(30);
+    term.type('#!/bin/bash\r');
+    await settle(30);
+    term.type('echo "Hi!"\r');
+    await settle(30);
+    term.type('EOF\r');
+    await settle(30);
+    await typeAndWait(term, 'cat hello.sh\r', '#!/bin/bash\necho "Hi!"\nlearner@sandbox:~$');
+    expect(term.allText()).not.toContain('event not found');
+    session.dispose();
+  });
+
+  it('exit says logout in a login shell', async () => {
+    const { term, session } = await startSession();
+    await typeAndWait(term, 'bash -l\r', 'learner@sandbox:~$ bash -l\n');
+    await settle(50);
+    await typeAndWait(term, 'exit\r', 'logout\nlearner@sandbox:~$');
+    await typeAndWait(term, 'logout\r', 'not login shell');
+    session.dispose();
+  });
+
   it('tab completion of a file name', async () => {
     const { term, session } = await startSession();
     term.type('cat wel\t');

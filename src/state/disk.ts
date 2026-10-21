@@ -10,6 +10,8 @@ export interface SavedMachine {
   history: string[];
   hostname: string;
   savedAt: number;
+  /** Working directory of the shell when saved. */
+  cwd?: string;
 }
 
 export function loadMachine(key: string): SavedMachine | null {
@@ -24,8 +26,8 @@ export function loadMachine(key: string): SavedMachine | null {
   }
 }
 
-export function saveMachine(key: string, system: System, history: string[]): boolean {
-  const m: SavedMachine = { v: 1, fs: system.fs.serialize(), history: history.slice(-500), hostname: system.hostname, savedAt: Date.now() };
+export function saveMachine(key: string, system: System, history: string[], cwd?: string): boolean {
+  const m: SavedMachine = { v: 1, fs: system.fs.serialize(), history: history.slice(-500), hostname: system.hostname, savedAt: Date.now(), cwd };
   return safeSet(key, JSON.stringify(m));
 }
 

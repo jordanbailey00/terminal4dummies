@@ -20,6 +20,8 @@ export interface SessionOptions {
   banner?: string;
   /** Persisted history lines to start with. */
   history?: string[];
+  /** Folder (relative to home, or absolute) to start in. */
+  startDir?: string;
 }
 
 export const DEFAULT_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin';
@@ -173,6 +175,19 @@ export class Session {
       }
     }
     await this.repl.source(`${this.repl.shell.state.get('HOME') ?? ''}/.bashrc`);
+    this.applyStartDir();
+  }
+
+  private applyStartDir(): void {
+    const dir = this.opts.startDir;
+    if (!dir) return;
+    const st = this.repl.shell.state;
+    const home = st.get('HOME') ?? '/';
+    const target = dir.startsWith('/') ? dir : `${home}/${dir}`;
+    if (!this.system.fs.isDir(target, this.repl.shell.opCtx())) return;
+    st.set('OLDPWD', st.cwd, { exported: true });
+    st.cwd = target;
+    st.set('PWD', target);
   }
 
   private async run(): Promise<void> {

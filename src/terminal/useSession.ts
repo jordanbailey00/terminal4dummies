@@ -16,12 +16,13 @@ export interface SessionFactoryOptions {
   makeSystem?: () => System;
   banner?: string;
   history?: string[];
+  startDir?: string;
 }
 
 export function createLiveSession(opts: SessionFactoryOptions = {}): LiveSession {
   const system = opts.makeSystem ? opts.makeSystem() : createSystem();
   const backend = new XtermBackend();
-  const session = new Session({ system, backend, banner: opts.banner, history: opts.history });
+  const session = new Session({ system, backend, banner: opts.banner, history: opts.history, startDir: opts.startDir });
   return { session, backend, system };
 }
 

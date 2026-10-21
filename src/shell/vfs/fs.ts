@@ -1,6 +1,7 @@
 // An in-memory, Unix-like filesystem with inodes, permissions, symlinks and
 // hard links. Everything the simulated shell does to "disk" goes through here.
 
+import { decodeBinaryStream, isEncodedStream } from './binstream';
 import { basename, isAbsolute, splitPath } from './path';
 
 export type ErrCode =
@@ -142,9 +143,25 @@ export function dataSize(data: FileData): number {
   return typeof data === 'string' ? byteLength(data) : data.size;
 }
 
-/** Bytes that actually count against the disk quota (binary placeholders are tiny). */
+const blobSizes = new WeakMap<BinaryData, number>();
+
+/**
+ * What a file costs against the disk quota: its text, or for archives and
+ * other binary data the text kept inside them (programs are tiny).
+ */
 export function storedSize(data: FileData): number {
-  return typeof data === 'string' ? data.length : 64;
+  if (typeof data === 'string') return data.length;
+  if (data.kind === 'native') return 64;
+  let n = blobSizes.get(data);
+  if (n === undefined) {
+    try {
+      n = 64 + (JSON.stringify(data.payload ?? null)?.length ?? 0);
+    } catch {
+      n = 64;
+    }
+    blobSizes.set(data, n);
+  }
+  return n;
 }
 
 export function inodeSize(node: Inode): number {
@@ -538,9 +555,12 @@ export class VirtualFS {
 
   /** Append text to an already-open file inode (quota checked). */
   appendToInode(node: FileInode, data: string, path: string): void {
-    const size = byteLength(data);
-    this.chargeQuota(size, path);
-    node.data = (typeof node.data === 'string' ? node.data : dataToText(node.data)) + data;
+    const oldSize = storedSize(node.data);
+    const text = (typeof node.data === 'string' ? node.data : dataToText(node.data)) + data;
+    // binary data that came through a pipe or redirection (cat a.tgz > b.tgz) is stored as binary again
+    const next: FileData = (isEncodedStream(text) && decodeBinaryStream(text)) || text;
+    this.chargeQuota(storedSize(next) - oldSize, path);
+    node.data = next;
     node.mtime = node.ctime = this.now();
     this.touchMutation();
   }

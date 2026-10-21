@@ -1,9 +1,10 @@
 // Helpers shared by the simulated GNU/Linux programs.
 
 import { compareLocale } from '../collate';
+import { deviceInput } from '../devices';
 import type { InputStream } from '../streams';
 import type { CommandContext, CommandDoc, NativeCommand } from '../types';
-import { FsError } from '../vfs/fs';
+import { FsError, type Inode } from '../vfs/fs';
 
 // ---------------------------------------------------------------------------
 // Registry
@@ -316,6 +317,33 @@ export function splitLines(text: string): string[] {
   return lines;
 }
 
+/** For a character device (/dev/zero, /dev/urandom, /dev/tty...), a stream to read it; null for anything else. */
+export function deviceStream(ctx: CommandContext, path: string): InputStream | null {
+  let node: Inode;
+  try {
+    node = ctx.fs.stat(path);
+  } catch {
+    return null;
+  }
+  if (node.type !== 'chardev') return null;
+  return deviceInput(node.device, { stdin: ctx.stdin, tty: ctx.tty, job: ctx.proc.job, random: ctx.system.random });
+}
+
+/** Read at most `max` characters from a stream (endless devices are cut off). */
+export async function readUpTo(input: InputStream, max: number, signal?: AbortSignal): Promise<string> {
+  let out = '';
+  while (out.length < max) {
+    const chunk = await input.read(signal);
+    if (chunk === null) break;
+    out += chunk;
+  }
+  if (out.length > max) {
+    input.unread(out.slice(max));
+    out = out.slice(0, max);
+  }
+  return out;
+}
+
 /**
  * Read the whole content of each operand ("-" or none means stdin).
  * Errors are reported as "name: file: reason" and the entry is skipped.
@@ -335,7 +363,9 @@ export async function readSources(
     try {
       const node = ctx.fs.stat(f);
       if (node.type === 'dir') throw new FsError('EISDIR', f);
-      out.push({ name: f, text: ctx.fs.readFile(f), ok: true });
+      const dev = deviceStream(ctx, f);
+      // an endless device is cut off rather than read forever
+      out.push({ name: f, text: dev ? await readUpTo(dev, 65536, ctx.signal) : ctx.fs.readFile(f), ok: true });
     } catch (e) {
       if (opts.report) await opts.report(f, e);
       else await ctx.error(`${qf(f)}: ${errText(e)}`);

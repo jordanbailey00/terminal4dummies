@@ -1,14 +1,14 @@
 // The interpreter: walks the AST and runs commands the way bash does.
 
-import { ArithError, evaluateArithmetic } from './arith';
-import { BUILTINS, type BuiltinContext } from './builtins/registry';
+import { ArithError, evaluateArithmetic, type ArithEnv } from './arith';
+import { BUILTINS, BUILTIN_HELP, NO_HELP_OPTION, formatBuiltinHelp, type BuiltinContext } from './builtins/registry';
 import { commandNotFoundMessage } from './cnf';
-import { ExpansionError, expandRedirectTarget, expandToPattern, expandToString, expandWords } from './expand';
+import { ExpansionError, expandArrayElements, expandRedirectTarget, expandToPattern, expandToString, expandWords, type ArrayItem } from './expand';
 import { spawnProgram, findInPath } from './exec';
 import { matchPattern } from './glob';
 import { JobTable } from './jobs';
 import type { History } from './history';
-import { IncompleteInputError, ParseError, parse, parseExpandableText } from './parser/parser';
+import { IncompleteInputError, ParseError, parse, parseExpandableText, parseInnerWord } from './parser/parser';
 import type {
   AndOr,
   Assignment,
@@ -25,13 +25,12 @@ import { Job } from './process';
 import { IO } from './io';
 
 export { IO };
-import { ReadonlyError, ShellState } from './state';
+import { BadSubscriptError, ReadonlyError, ShellState, cloneVar } from './state';
 import {
   BrokenPipeError,
   CaptureOutput,
   FileOutput,
   InputStream,
-  NullInput,
   NullOutput,
   OutputStream,
   Pipe,
@@ -41,13 +40,15 @@ import {
   yieldToEventLoop,
 } from './streams';
 import type { System } from './system';
+import { deviceInput } from './devices';
 import { TtyInput, TtyOutput } from './tty';
 import { binaryTest, unaryTest } from './builtins/test';
+import { encodeBinaryStream } from './vfs/binstream';
 import { FsError, type OpContext } from './vfs/fs';
 import { resolvePath } from './vfs/path';
 
 export { ExitException, ReturnException, BreakException, ContinueException, RedirectError } from './control';
-import { ExitException, ReturnException, BreakException, ContinueException, RedirectError } from './control';
+import { AbortCommand, ExitException, ReturnException, BreakException, ContinueException, RedirectError } from './control';
 
 export const MAX_FUNC_NEST = 1000;
 
@@ -82,6 +83,8 @@ export class Shell {
   sourceDepth = 0;
   /** trap handlers by condition name (EXIT, INT, ...). */
   traps = new Map<string, string>();
+  /** Open process substitutions, closed when the command using them ends. */
+  private procSubs: { fd: number; finish: () => Promise<void> }[] = [];
 
   constructor(init: ShellInit) {
     this.system = init.system;
@@ -178,11 +181,79 @@ export class Shell {
     if (name === 'PWD' || name === 'OLDPWD') return;
   }
 
-  arithEnv() {
-    return {
+  arithEnv(): ArithEnv {
+    const st = this.state;
+    // inside $(( )), subscripts of indexed arrays are arithmetic too
+    const key = (n: string, sub: string): string | number => (st.isAssoc(n) ? sub.trim() : evaluateArithmetic(sub, env));
+    const env: ArithEnv = {
       get: (n: string) => this.getParam(n),
       set: (n: string, v: string) => this.setVar(n, v),
+      getElement: (n: string, sub: string) => st.getElement(n, key(n, sub)) ?? undefined,
+      setElement: (n: string, sub: string, v: string) => st.setElement(n, key(n, sub), v, sub),
     };
+    return env;
+  }
+
+  /** name[sub]=value (and +=). */
+  async assignElement(name: string, sub: string, value: string, append: boolean, io: IO): Promise<void> {
+    const st = this.state;
+    const key = st.isAssoc(name) ? await expandToString(this, parseInnerWord(sub), io) : await this.arithmetic(sub, io);
+    const old = st.getElement(name, key) ?? '';
+    let v = append ? old + value : value;
+    if (st.getVar(name)?.integer) v = String(evaluateArithmetic(append ? `${old || 0}+(${value})` : value, this.arithEnv()));
+    st.setElement(name, key, v, sub);
+  }
+
+  /** declare 'a=(x y)': assign the text inside the parentheses as an array literal. */
+  async assignCompound(name: string, inner: string, append: boolean, io: IO): Promise<void> {
+    const script = parse(`__t4d_array=(${inner})`);
+    const first = script.items[0]?.node.first.commands[0];
+    const a = first?.type === 'simple' ? first.assignments[0] : undefined;
+    if (!a?.array || script.items.length !== 1) throw new ExpansionError(`${name}: cannot assign list to array member`);
+    await this.assignArray(name, await expandArrayElements(this, a.array, io), append, io);
+  }
+
+  /** name=(...) and name+=(...): number the elements (or pair up keys) like bash. */
+  async assignArray(name: string, items: ArrayItem[], append: boolean, io: IO): Promise<void> {
+    const st = this.state;
+    const integer = st.getVar(name)?.integer ?? false;
+    const num = (v: string) => (integer ? String(evaluateArithmetic(v, this.arithEnv())) : v);
+    if (st.isAssoc(name)) {
+      const pairs = new Map<string, string>();
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.key !== null) {
+          const k = await expandToString(this, parseInnerWord(it.key), io);
+          const prev = it.append ? (pairs.get(k) ?? (append ? st.getElement(name, k) : undefined) ?? '') : '';
+          pairs.set(k, num(prev + it.value));
+        } else {
+          // m=(k1 v1 k2 v2): key/value pairs
+          const next = items[i + 1];
+          const v = next && next.key === null ? next.value : '';
+          if (next && next.key === null) i++;
+          pairs.set(it.value, num(v));
+        }
+      }
+      st.setArray(name, [...pairs], append);
+      return;
+    }
+    let next = append ? st.nextIndex(name) : 0;
+    const pairs = new Map<number, string>();
+    for (const it of items) {
+      let idx = next;
+      if (it.key !== null) {
+        idx = await this.arithmetic(it.key, io);
+        if (idx < 0) {
+          const base = append ? st.nextIndex(name) : Math.max(-1, ...pairs.keys()) + 1;
+          if (idx + base < 0) throw new BadSubscriptError(name, it.key);
+          idx += base;
+        }
+      }
+      const prev = it.append ? (pairs.get(idx) ?? (append ? st.getElement(name, idx) : undefined) ?? '') : '';
+      pairs.set(idx, num(prev + it.value));
+      next = idx + 1;
+    }
+    st.setArray(name, [...pairs], append);
   }
 
   expandTilde(user: string): string | null {
@@ -200,8 +271,12 @@ export class Shell {
   // ---------------------------------------------------------------------------
   // Running source text
 
-  /** Parse and run a string (used by -c, eval, source and scripts). */
-  async runSource(src: string, io: IO, opts: { lineOffset?: number } = {}): Promise<number> {
+  /**
+   * Parse and run a string (used by -c, eval, source and scripts). An
+   * expansion error abandons the whole string, or with `perLine` (scripts
+   * and source) just the rest of that line.
+   */
+  async runSource(src: string, io: IO, opts: { lineOffset?: number; perLine?: boolean } = {}): Promise<number> {
     let script: Script;
     try {
       script = parse(src, { aliases: this.state.options.expand_aliases ? this.state.aliases : undefined });
@@ -223,7 +298,27 @@ export class Shell {
       }
       throw e;
     }
-    return this.execScript(script, io);
+    if (!opts.perLine) return this.abortable(() => this.execScript(script, io));
+    let status = 0;
+    for (let i = 0; i < script.items.length; ) {
+      let j = i;
+      while (j < script.items.length - 1 && !script.items[j].endsLine) j++;
+      const line: Script = { type: 'script', items: script.items.slice(i, j + 1) };
+      status = await this.abortable(() => this.execScript(line, io));
+      i = j + 1;
+    }
+    return status;
+  }
+
+  /** Run something that an expansion error may abandon (status 1). */
+  async abortable(run: () => Promise<number>): Promise<number> {
+    try {
+      return await run();
+    } catch (e) {
+      if (!(e instanceof AbortCommand)) throw e;
+      this.state.lastStatus = 1;
+      return 1;
+    }
   }
 
   async tick(io: IO): Promise<void> {
@@ -290,6 +385,7 @@ export class Shell {
         status = await child.execAndOr(item.node, bio);
       } catch (e) {
         if (e instanceof ExitException) status = e.status;
+        else if (e instanceof AbortCommand) status = 1;
         else if (e instanceof SignalError) {
           status = e.status;
           if (!job.termSignal && !(e instanceof BrokenPipeError)) job.termSignal = e.signal;
@@ -316,6 +412,7 @@ export class Shell {
     try {
       if (p.commands.length === 1) {
         status = await this.execCommand(p.commands[0], io);
+        this.setPipeStatus([status]);
       } else {
         status = await this.execMulti(p, io);
       }
@@ -330,6 +427,14 @@ export class Shell {
       await io.stderr.write(`\nreal\t${m}m${s}s\nuser\t0m0.001s\nsys\t0m0.000s\n`).catch(() => {});
     }
     return status;
+  }
+
+  private setPipeStatus(statuses: number[]): void {
+    try {
+      this.state.setArray('PIPESTATUS', statuses.map((s, i) => [i, String(s)]));
+    } catch {
+      // readonly PIPESTATUS: ignore, like bash
+    }
   }
 
   private async execMulti(p: Pipeline, io: IO): Promise<number> {
@@ -348,6 +453,7 @@ export class Shell {
         return await child.execCommand(cmd, cio);
       } catch (e) {
         if (e instanceof ExitException) return e.status;
+        if (e instanceof AbortCommand) return 1;
         if (e instanceof SignalError) {
           if (io.job.signal.aborted) throw e;
           return e.status;
@@ -364,7 +470,7 @@ export class Shell {
       if (r.status === 'rejected') throw r.reason;
       statuses.push(r.value);
     }
-    this.state.set('PIPESTATUS', statuses.join(' '));
+    this.setPipeStatus(statuses);
     if (this.state.options.pipefail) {
       for (let i = statuses.length - 1; i >= 0; i--) if (statuses[i] !== 0) return statuses[i];
       return 0;
@@ -376,6 +482,16 @@ export class Shell {
   // Commands
 
   async execCommand(cmd: Command, io: IO): Promise<number> {
+    const mark = this.procSubs.length;
+    try {
+      return await this.execCommandInner(cmd, io);
+    } finally {
+      // like bash, close <(...) files once the command that uses them is done
+      while (this.procSubs.length > mark) await this.procSubs.pop()!.finish();
+    }
+  }
+
+  private async execCommandInner(cmd: Command, io: IO): Promise<number> {
     if (cmd.type === 'simple') return this.execSimple(cmd, io);
     if (cmd.type === 'function') {
       this.state.functions.set(cmd.name, cmd);
@@ -396,6 +512,7 @@ export class Shell {
           return await child.execScript(cmd.body, rio);
         } catch (e) {
           if (e instanceof ExitException) return e.status;
+          if (e instanceof AbortCommand) return 1;
           throw e;
         }
       }
@@ -420,7 +537,7 @@ export class Shell {
         try {
           items = cmd.words ? await expandWords(this, cmd.words, rio) : [...this.state.positional];
         } catch (e) {
-          return this.reportExpansionError(e, rio);
+          return this.abortExpansion(e, rio);
         }
         let status = 0;
         this.loopDepth++;
@@ -488,7 +605,7 @@ export class Shell {
             if (cmd.step) await this.arithmetic(cmd.step, rio);
           }
         } catch (e) {
-          if (e instanceof ExpansionError) return this.reportExpansionError(e, rio);
+          if (e instanceof ExpansionError) return this.reportExpansionError(e, rio, '((: ');
           throw e;
         } finally {
           this.loopDepth--;
@@ -500,7 +617,7 @@ export class Shell {
         try {
           word = await expandToString(this, cmd.word, rio);
         } catch (e) {
-          return this.reportExpansionError(e, rio);
+          return this.abortExpansion(e, rio);
         }
         let status = 0;
         let fallthrough = false;
@@ -528,14 +645,15 @@ export class Shell {
           const v = await this.arithmetic(cmd.expr, rio);
           return v !== 0 ? 0 : 1;
         } catch (e) {
-          return this.reportExpansionError(e, rio);
+          return this.reportExpansionError(e, rio, '((: ');
         }
       }
       case 'cond': {
         try {
           return (await this.evalCond(cmd.expr, rio)) ? 0 : 1;
         } catch (e) {
-          if (e instanceof ExpansionError) return this.reportExpansionError(e, rio);
+          if (e instanceof ExpansionError) return this.abortExpansion(e, rio);
+          if (e instanceof CondFailed) return 1;
           throw e;
         }
       }
@@ -582,10 +700,10 @@ export class Shell {
     return status;
   }
 
-  private async reportExpansionError(e: unknown, io: IO): Promise<number> {
+  private async reportExpansionError(e: unknown, io: IO, prefix = ''): Promise<number> {
     if (e instanceof ExpansionError) {
-      await this.printError(io, e.message);
-      if (e.fatal && !this.state.interactive) throw new ExitException(1);
+      await this.printError(io, prefix + e.message);
+      if (e.fatal && !this.state.interactive) throw new ExitException(1, true);
       return 1;
     }
     if (e instanceof ReadonlyError) {
@@ -603,6 +721,12 @@ export class Shell {
     throw e;
   }
 
+  /** Report an error while expanding a command's words, then abandon the line. */
+  private async abortExpansion(e: unknown, io: IO): Promise<never> {
+    await this.reportExpansionError(e, io);
+    throw new AbortCommand();
+  }
+
   private async reportRedirectFailure(e: unknown, io: IO): Promise<number> {
     if (e instanceof RedirectError) {
       await this.printError(io, e.message);
@@ -613,8 +737,8 @@ export class Shell {
 
   private async assignmentValue(a: Assignment, io: IO): Promise<string> {
     if (a.array) {
-      const items = await expandWords(this, a.array, io);
-      return items.join(' ');
+      const items = await expandArrayElements(this, a.array, io);
+      return items.map((i) => i.value).join(' ');
     }
     return a.value ? await expandToString(this, a.value, io) : '';
   }
@@ -640,23 +764,31 @@ export class Shell {
     try {
       argv = await expandWords(this, cmd.words, io);
     } catch (e) {
-      return this.reportExpansionError(e, io);
+      return this.abortExpansion(e, io);
     }
 
     if (argv.length === 0) {
       const shown: string[] = [];
       for (const a of cmd.assignments) {
         try {
+          if (a.array) {
+            const items = await expandArrayElements(this, a.array, io);
+            await this.assignArray(a.name, items, a.append, io);
+            shown.push(`${a.name}${a.append ? '+' : ''}=(${items.map((i) => i.value).join(' ')})`);
+            if (this.state.options.xtrace) await this.trace(io, [`${a.name}=(${items.map((i) => shellQuoteForTrace(i.value)).join(' ')})`]);
+            continue;
+          }
           const v = await this.assignmentValue(a, io);
-          this.assign(a.name, v, a.append);
-          shown.push(`${a.name}${a.append ? '+' : ''}=${v}`);
-          if (this.state.options.xtrace) await this.trace(io, [`${a.name}=${shellQuoteForTrace(v)}`]);
+          if (a.index !== undefined) await this.assignElement(a.name, a.index, v, a.append, io);
+          else this.assign(a.name, v, a.append);
+          shown.push(`${a.name}${a.index !== undefined ? `[${a.index}]` : ''}${a.append ? '+' : ''}=${v}`);
+          if (this.state.options.xtrace) await this.trace(io, [`${a.name}${a.index !== undefined ? `[${a.index}]` : ''}=${shellQuoteForTrace(v)}`]);
         } catch (e) {
           if (e instanceof ArithError) {
             await this.printError(io, `${a.value?.raw ?? ''}: ${e.message}`);
-            return 1;
+            throw new AbortCommand();
           }
-          return this.reportExpansionError(e, io);
+          return this.abortExpansion(e, io);
         }
       }
       if (cmd.redirects.length > 0) {
@@ -675,7 +807,7 @@ export class Shell {
     try {
       for (const a of cmd.assignments) temp.push([a.name, await this.assignmentValue(a, io)]);
     } catch (e) {
-      return this.reportExpansionError(e, io);
+      return this.abortExpansion(e, io);
     }
 
     if (this.state.options.xtrace) {
@@ -686,9 +818,16 @@ export class Shell {
     try {
       rio = await this.applyRedirects(cmd.redirects, io);
     } catch (e) {
-      const status = await this.reportRedirectFailure(e, io);
-      this.system.emitExec({ argv, kind: 'builtin', status, uid: this.state.creds.uid, cwd: this.state.cwd });
-      return status;
+      // like bash, the command never runs (and lesson checks must not count it)
+      return this.reportRedirectFailure(e, io);
+    }
+
+    if (argv.length === 1 && argv[0] === 'exec' && rio !== io && !this.state.functions.has('exec')) {
+      // `exec 3>&1`, `exec > log`: the redirections stay for the commands that follow
+      io.fds.clear();
+      for (const [fd, stream] of rio.fds) io.fds.set(fd, stream);
+      this.system.emitExec({ argv, kind: 'builtin', status: 0, uid: this.state.creds.uid, cwd: this.state.cwd });
+      return 0;
     }
 
     const name = argv[0];
@@ -714,6 +853,8 @@ export class Shell {
         path = found;
         const env = this.state.exportedEnv();
         for (const [k, v] of temp) env.set(k, v);
+        // bash hands each program its own path as $_
+        env.set('_', found);
         status = await spawnProgram(this, { path: found, argv, env, io: rio, creds: this.state.creds, cwd: this.state.cwd, umask: this.state.umask });
       }
     }
@@ -767,6 +908,11 @@ export class Shell {
     }
     const savedLoop = this.loopDepth;
     this.loopDepth = 0;
+    const savedFuncname = st.getVar('FUNCNAME');
+    // like bash, a script's outermost level is called "main"
+    const stack = savedFuncname ? st.entries('FUNCNAME').map(([, v]) => v) : st.inScript ? ['main'] : [];
+    st.vars.delete('FUNCNAME');
+    st.setArray('FUNCNAME', [fn.name, ...stack].map((v, i) => [i, v]));
     try {
       return await this.execCommand(fn.body, io);
     } catch (e) {
@@ -777,6 +923,8 @@ export class Shell {
       st.popScope();
       st.funcNest--;
       st.positional = savedPositional;
+      if (savedFuncname) st.vars.set('FUNCNAME', cloneVar(savedFuncname));
+      else st.vars.delete('FUNCNAME');
     }
   }
 
@@ -801,6 +949,12 @@ export class Shell {
       }
     }
     const name = argv[0];
+    const help = BUILTIN_HELP.get(name);
+    if (argv[1] === '--help' && help && !NO_HELP_OPTION.has(name)) {
+      // bash 5.2: `cd --help` shows the same text as `help cd` (status 2)
+      await io.stdout.write(formatBuiltinHelp(name, help)).catch(() => {});
+      return 2;
+    }
     const ctx: BuiltinContext = {
       sh: this,
       argv,
@@ -845,11 +999,64 @@ export class Shell {
       status = await child.execScript(body, cio);
     } catch (e) {
       if (e instanceof ExitException) status = e.status;
+      else if (e instanceof AbortCommand) status = 1;
       else throw e;
     }
     this.lastCmdSubStatus = status;
     this.state.lastStatus = status;
     return cap.text().replace(/\n+$/, '');
+  }
+
+  /**
+   * <(cmd) runs cmd and makes its output readable at /dev/fd/N; >(cmd)
+   * makes /dev/fd/N writable and feeds what was written to cmd afterwards.
+   * Unlike bash the two sides take turns instead of running concurrently.
+   */
+  async processSubstitution(dir: '<' | '>', body: Script, io: IO): Promise<string> {
+    const fs = this.system.fs;
+    const root: OpContext = { cwd: '/', creds: { uid: 0, gid: 0, groups: [0] }, umask: 0o022 };
+    const busy = activeProcSubFds(this.system);
+    let fd = 63;
+    while (busy.has(fd)) fd--;
+    const path = `/dev/fd/${fd}`;
+    const runChild = async (cio: IO) => {
+      try {
+        await this.subshell().execScript(body, cio);
+      } catch (e) {
+        if (!(e instanceof ExitException) && !(e instanceof AbortCommand)) throw e;
+      }
+    };
+    let data = '';
+    if (dir === '<') {
+      const cap = new CaptureOutput();
+      const cio = io.clone();
+      cio.fds.set(1, cap);
+      await runChild(cio);
+      data = cap.text();
+    }
+    if (!fs.tryStat('/dev/fd', root)) fs.mkdir('/dev/fd', root, 0o755);
+    fs.writeFile(path, data, root, { mode: 0o600 });
+    fs.chown(path, this.state.creds.uid, this.state.creds.gid, root);
+    busy.add(fd);
+    this.procSubs.push({
+      fd,
+      finish: async () => {
+        busy.delete(fd);
+        let written = '';
+        try {
+          if (dir === '>') written = fs.readFile(path, root);
+          fs.unlink(path, root);
+        } catch {
+          // already removed
+        }
+        if (dir === '>') {
+          const cio = io.clone();
+          cio.fds.set(0, new StringInput(written));
+          await runChild(cio);
+        }
+      },
+    });
+    return path;
   }
 
   async arithmetic(expr: string, io: IO): Promise<number> {
@@ -860,7 +1067,7 @@ export class Shell {
     try {
       return evaluateArithmetic(text, this.arithEnv());
     } catch (e) {
-      if (e instanceof ArithError) throw new ExpansionError(`${text.trim()}: ${e.message}`);
+      if (e instanceof ArithError) throw new ExpansionError(`${text.replace(/^\s+/, '')}: ${e.message}`);
       if (e instanceof ReadonlyError) throw new ExpansionError(e.message);
       throw e;
     }
@@ -896,12 +1103,29 @@ export class Shell {
             return false;
           }
           const m = re.exec(left);
-          if (m) this.state.set('BASH_REMATCH', m[0]);
+          this.state.setArray('BASH_REMATCH', m ? [...m].map((g, i) => [i, g ?? '']) : []);
           return m !== null;
         }
         const right = await expandToString(this, e.right, io);
         if (e.op === '<') return left < right;
         if (e.op === '>') return left > right;
+        if (INT_OPS.has(e.op)) {
+          // inside [[ ]] both sides of -eq and friends are arithmetic expressions
+          const env = this.arithEnv();
+          let x: number;
+          let y: number;
+          let cur = left;
+          try {
+            x = evaluateArithmetic(left, env);
+            cur = right;
+            y = evaluateArithmetic(right, env);
+          } catch (err) {
+            if (!(err instanceof ArithError)) throw err;
+            await this.printError(io, `[[: ${cur.replace(/^\s+/, '')}: ${err.message}`);
+            throw new CondFailed();
+          }
+          return binaryTest(this, e.op, String(x), String(y));
+        }
         return binaryTest(this, e.op, left, right);
       }
     }
@@ -975,20 +1199,11 @@ export class Shell {
     const fs = this.system.fs;
     const ctx = this.opCtx();
     const node = fs.tryStat(path, ctx);
-    if (node?.type === 'chardev') {
-      switch (node.device) {
-        case 'tty':
-          return this.system.tty ? new TtyInput(this.system.tty, io.job) : new NullInput();
-        case 'stdin':
-          return io.stdin;
-        case 'random':
-          return new RandomInput(this.system.random);
-        default:
-          return new NullInput();
-      }
-    }
+    if (node?.type === 'chardev') return deviceInput(node.device, { stdin: io.stdin, tty: this.system.tty, job: io.job, random: this.system.random });
     try {
-      return new StringInput(fs.readFile(path, ctx));
+      const data = fs.readData(path, ctx);
+      // binary files are passed on encoded, so `gunzip < notes.gz` gets the real data
+      return new StringInput(typeof data === 'string' ? data : encodeBinaryStream(data));
     } catch (e) {
       if (e instanceof FsError) throw new RedirectError(`${path}: ${e.reason}`);
       throw e;
@@ -1023,21 +1238,18 @@ export class Shell {
   }
 }
 
-/** Endless random bytes for /dev/urandom. */
-class RandomInput extends InputStream {
-  readonly isTTY = false;
-  private readonly random: () => number;
-  constructor(random: () => number) {
-    super();
-    this.random = random;
-  }
-  protected async pull(signal?: AbortSignal): Promise<string | null> {
-    if (signal?.aborted) throw signal.reason;
-    await yieldToEventLoop();
-    let s = '';
-    for (let i = 0; i < 512; i++) s += String.fromCharCode(Math.floor(this.random() * 256));
-    return s;
-  }
+const INT_OPS = new Set(['-eq', '-ne', '-lt', '-le', '-gt', '-ge']);
+
+/** A [[ ]] test hit an arithmetic error (already reported): status 1. */
+class CondFailed extends Error {}
+
+const procSubFds = new WeakMap<System, Set<number>>();
+
+/** /dev/fd numbers in use by process substitutions on this machine. */
+function activeProcSubFds(system: System): Set<number> {
+  let set = procSubFds.get(system);
+  if (!set) procSubFds.set(system, (set = new Set()));
+  return set;
 }
 
 /** Convert a POSIX extended regex to a JavaScript one (character classes, word edges). */

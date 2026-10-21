@@ -29,16 +29,17 @@ export function shellFromContext(ctx: CommandContext, opts: { arg0: string; posi
   return new Shell({ system: sys, state, interactiveTree: false });
 }
 
-async function runShellProgram(ctx: CommandContext, sh: Shell, src: string): Promise<number> {
+async function runShellProgram(ctx: CommandContext, sh: Shell, src: string, perLine = true): Promise<number> {
   const io = IO.of(ctx.proc.job, ctx.stdin, ctx.stdout, ctx.stderr);
   try {
-    const status = await sh.runSource(src, io);
+    const status = await sh.runSource(src, io, { perLine });
     await runExitTrap(sh, io);
     return status;
   } catch (e) {
     if (e instanceof ExitException) {
       await runExitTrap(sh, io);
-      return e.status;
+      // bash -c exits with 127 after `${x:?}` or a `set -u` error (a script with 1)
+      return e.fatal && !perLine ? 127 : e.status;
     }
     if (e instanceof SignalError) throw e;
     throw e;
@@ -115,14 +116,14 @@ async function bashMain(ctx: CommandContext): Promise<number> {
     const arg0 = args[i] ?? ctx.name;
     const sh = shellFromContext(ctx, { arg0, positional: args.slice(i + 1) });
     applyFlags(sh);
-    return runShellProgram(ctx, sh, command);
+    return runShellProgram(ctx, sh, command, false);
   }
   const script = args[i];
   if (script === undefined) {
     if (ctx.stdin.isTTY && ctx.tty) {
-      // An interactive sub-shell.
+      // An interactive sub-shell (bash -l / bash --login: a login shell).
       const { runNestedInteractive } = await import('./nested');
-      return runNestedInteractive(ctx);
+      return runNestedInteractive(ctx, { login: args.includes('-l') || args.includes('--login') });
     }
     const src = await ctx.stdin.readAll();
     const sh = shellFromContext(ctx, { arg0: ctx.name, positional: [] });
@@ -147,6 +148,7 @@ async function bashMain(ctx: CommandContext): Promise<number> {
     return 126;
   }
   const sh = shellFromContext(ctx, { arg0: script, positional: args.slice(i + 1) });
+  sh.state.inScript = true;
   applyFlags(sh);
   return runShellProgram(ctx, sh, src);
 }
@@ -321,7 +323,7 @@ defineCommand({
     if (loginShell) env.set('HOME', target.home);
     if (loginShell && args.length === 0) {
       const { runNestedInteractive } = await import('./nested');
-      return runNestedInteractive(ctx, { creds, env, cwd: target.home, user: target.name });
+      return runNestedInteractive(ctx, { creds, env, cwd: target.home, user: target.name, login: true });
     }
     while (args.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(args[0])) {
       const eq = args[0].indexOf('=');
@@ -360,6 +362,7 @@ defineCommand({
   doc: { category: 'permissions', summary: 'run a command with substitute user and group ID', synopsis: ['su [options] [-] [user [argument...]]'], description: 'su allows commands to be run with a substitute user and group ID. On Ubuntu the root account has no password, so use sudo -i (or sudo su) instead of plain su.', seeAlso: ['sudo'] },
   gnu: false,
   run: async (ctx) => {
+    const login = ctx.args.some((a) => a === '-' || a === '-l' || a === '--login');
     const args = ctx.args.filter((a) => a !== '-' && a !== '-l' && a !== '--login');
     const user = args[0] ?? 'root';
     const sys = ctx.system;
@@ -380,7 +383,7 @@ defineCommand({
     env.set('HOME', target.home);
     env.set('USER', target.name);
     env.set('LOGNAME', target.name);
-    return runNestedInteractive(ctx, { creds: sys.credsFor(target), env, cwd: ctx.cwd, user: target.name });
+    return runNestedInteractive(ctx, { creds: sys.credsFor(target), env, cwd: login ? target.home : ctx.cwd, user: target.name, login });
   },
 });
 

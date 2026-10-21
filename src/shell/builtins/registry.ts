@@ -39,6 +39,15 @@ export const KEYWORDS = new Set([
   'function', 'time', '{', '}', '!', '[[', ']]', 'coproc',
 ]);
 
+/** The text `help NAME` prints (also shown for `NAME --help`). */
+export function formatBuiltinHelp(name: string, h: BuiltinHelp): string {
+  const body = h.body ? '\n' + h.body.split('\n').map((l) => (l ? '    ' + l : '    ')).join('\n') + '\n' : '\n';
+  return `${name}: ${h.usage}\n    ${h.summary}\n${body}`;
+}
+
+/** Builtins that treat --help as an ordinary argument. */
+export const NO_HELP_OPTION = new Set([':', 'true', 'false', 'test', '[', 'echo']);
+
 export function defineBuiltin(name: string, help: BuiltinHelp, impl: BuiltinImpl): void {
   BUILTINS.set(name, impl);
   BUILTIN_HELP.set(name, help);

@@ -115,10 +115,25 @@ export class Screen {
     if (this.savedModes) this.tty.setModes(this.savedModes);
   }
 
+  private queue: TuiKey[] = [];
+
   /** Keys typed since the last read (waits for at least one). */
   async readKeys(signal?: AbortSignal): Promise<TuiKey[]> {
+    if (this.queue.length) return this.queue.splice(0);
     const data = await this.tty.readRaw(signal);
     return parseKeys(data) as TuiKey[];
+  }
+
+  /** The next single key; keys typed together (even "/word") are handed out one by one. */
+  async readKey(signal?: AbortSignal): Promise<TuiKey> {
+    while (this.queue.length === 0) {
+      const data = await this.tty.readRaw(signal);
+      for (const k of parseKeys(data) as TuiKey[]) {
+        if (k.t === 'text') for (const ch of k.s) this.queue.push({ t: 'text', s: ch });
+        else this.queue.push(k);
+      }
+    }
+    return this.queue.shift()!;
   }
 
   /** Was the terminal resized since the last call? */
@@ -257,6 +272,8 @@ export interface PagerOptions {
   chop?: boolean;
   /** Start position: line number or search. */
   startLine?: number;
+  /** Case in searches: less is case-sensitive unless run with -i (smart) or -I (always). */
+  ignoreCase?: 'never' | 'smart' | 'always';
 }
 
 const LESS_HELP = `
@@ -395,7 +412,8 @@ export async function runPager(ctx: CommandContext, text: string, o: PagerOption
     const step = forward ? 1 : -1;
     for (let i = startLogical + step; i >= 0 && i < logical.length; i += step) {
       if (re.test(stripAnsi(logical[i]))) {
-        top = Math.min(maxTop(), Math.max(0, display.findIndex((d) => d.line === i)));
+        // like less, the matching line goes to the top of the screen, even near the end
+        top = Math.max(0, display.findIndex((d) => d.line === i));
         return true;
       }
     }
@@ -406,17 +424,15 @@ export async function runPager(ctx: CommandContext, text: string, o: PagerOption
     let buf = '';
     for (;;) {
       await tty.writeRaw(screen.moveTo(body(), 0) + label + buf + '\x1b[K');
-      const keys = await screen.readKeys();
-      for (const k of keys) {
-        const name = keyName(k);
-        if (name === 'enter') return buf;
-        if (name === 'C-c' || name === 'escape' || name === 'C-g') return null;
-        if (name === 'backspace') {
-          if (buf === '') return null;
-          buf = [...buf].slice(0, -1).join('');
-        } else if (k.t === 'text') buf += k.s;
-        else if (k.t === 'paste') buf += k.s.replace(/\n/g, ' ');
-      }
+      const k = await screen.readKey();
+      const name = keyName(k);
+      if (name === 'enter') return buf;
+      if (name === 'C-c' || name === 'escape' || name === 'C-g') return null;
+      if (name === 'backspace') {
+        if (buf === '') return null;
+        buf = [...buf].slice(0, -1).join('');
+      } else if (k.t === 'text') buf += k.s;
+      else if (k.t === 'paste') buf += k.s.replace(/\n/g, ' ');
     }
   };
 
@@ -434,7 +450,7 @@ export async function runPager(ctx: CommandContext, text: string, o: PagerOption
     }
     await render();
     for (;;) {
-      const keys = await screen.readKeys();
+      const keys = [await screen.readKey()];
       for (const k of keys) {
         const name = keyName(k);
         if (showHelp) {
@@ -473,7 +489,7 @@ export async function runPager(ctx: CommandContext, text: string, o: PagerOption
           case 'pgdn':
           case 'z':
             if (o.more && atEnd()) return 0;
-            top = Math.min(maxTop(), top + (n ?? body()));
+            top = Math.max(top, Math.min(maxTop(), top + (n ?? body())));
             break;
           case 'b':
           case 'C-b':
@@ -489,7 +505,7 @@ export async function runPager(ctx: CommandContext, text: string, o: PagerOption
           case 'C-e':
           case 'down':
             if (o.more && atEnd()) return 0;
-            top = Math.min(maxTop(), top + (n ?? 1));
+            top = Math.max(top, Math.min(maxTop(), top + (n ?? 1)));
             break;
           case 'k':
           case 'y':
@@ -501,7 +517,7 @@ export async function runPager(ctx: CommandContext, text: string, o: PagerOption
             break;
           case 'd':
           case 'C-d':
-            top = Math.min(maxTop(), top + (n ?? Math.floor(body() / 2)));
+            top = Math.max(top, Math.min(maxTop(), top + (n ?? Math.floor(body() / 2))));
             break;
           case 'u':
           case 'C-u':
@@ -569,11 +585,13 @@ export async function runPager(ctx: CommandContext, text: string, o: PagerOption
               }
               break;
             }
+            const ic = o.ignoreCase ?? 'never';
+            const flags = ic === 'always' || (ic === 'smart' && !/[A-Z]/.test(pat)) ? 'i' : '';
             let re: RegExp;
             try {
-              re = new RegExp(pat, /[A-Z]/.test(pat) ? '' : 'i');
+              re = new RegExp(pat, flags);
             } catch {
-              re = new RegExp(pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+              re = new RegExp(pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
             }
             lastSearch = { re, forward: name === '/' };
             let found = false;

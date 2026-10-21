@@ -1,5 +1,7 @@
 // printf(1)-style formatting and echo -e escape handling.
 
+import { decodeBytes } from './bytes';
+
 export interface PrintfResult {
   output: string;
   errors: string[];
@@ -10,64 +12,77 @@ export interface PrintfResult {
 /** Process backslash escapes like `echo -e` / printf %b. */
 export function processEscapes(s: string, mode: 'echo' | 'printf' | 'b'): { text: string; stopped: boolean } {
   let out = '';
+  let bytes: number[] = [];
+  // \NNN and \xHH escapes are bytes; runs of them are decoded as UTF-8
+  const add = (t: string) => {
+    if (bytes.length) {
+      out += decodeBytes(bytes);
+      bytes = [];
+    }
+    out += t;
+  };
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
     if (c !== '\\' || i + 1 >= s.length) {
-      out += c;
+      add(c);
       continue;
     }
     const n = s[++i];
     switch (n) {
-      case 'a': out += '\x07'; break;
-      case 'b': out += '\b'; break;
+      case 'a': add('\x07'); break;
+      case 'b': add('\b'); break;
       case 'c':
-        if (mode !== 'printf') return { text: out, stopped: true };
-        out += '\\c';
+        if (mode !== 'printf') {
+          add('');
+          return { text: out, stopped: true };
+        }
+        add('\\c');
         break;
       case 'e':
-      case 'E': out += '\x1b'; break;
-      case 'f': out += '\f'; break;
-      case 'n': out += '\n'; break;
-      case 'r': out += '\r'; break;
-      case 't': out += '\t'; break;
-      case 'v': out += '\v'; break;
-      case '\\': out += '\\'; break;
-      case '"': out += mode === 'printf' ? '"' : '\\"'; break;
-      case "'": out += mode === 'printf' ? "'" : "\\'"; break;
+      case 'E': add('\x1b'); break;
+      case 'f': add('\f'); break;
+      case 'n': add('\n'); break;
+      case 'r': add('\r'); break;
+      case 't': add('\t'); break;
+      case 'v': add('\v'); break;
+      case '\\': add('\\'); break;
+      case '"': add(mode === 'printf' ? '"' : '\\"'); break;
+      case "'": add(mode === 'printf' ? "'" : "\\'"); break;
       case 'x': {
         const m = /^[0-9a-fA-F]{1,2}/.exec(s.slice(i + 1));
         if (m) {
-          out += String.fromCharCode(parseInt(m[0], 16));
+          bytes.push(parseInt(m[0], 16));
           i += m[0].length;
-        } else out += '\\x';
+        } else add('\\x');
         break;
       }
       case 'u':
       case 'U': {
         const m = (n === 'u' ? /^[0-9a-fA-F]{1,4}/ : /^[0-9a-fA-F]{1,8}/).exec(s.slice(i + 1));
         if (m) {
-          out += String.fromCodePoint(parseInt(m[0], 16));
+          add(String.fromCodePoint(parseInt(m[0], 16)));
           i += m[0].length;
-        } else out += '\\' + n;
+        } else add('\\' + n);
         break;
       }
       case '0': {
         // echo: \0NNN ; printf: \NNN (with the leading 0 counting as a digit)
         const m = /^[0-7]{0,3}/.exec(s.slice(i + 1))!;
-        out += String.fromCharCode(parseInt(m[0] || '0', 8) & 255);
+        bytes.push(parseInt(m[0] || '0', 8) & 255);
         i += m[0].length;
         break;
       }
       default:
         if (mode !== 'echo' && /[1-7]/.test(n)) {
           const m = /^[0-7]{0,2}/.exec(s.slice(i + 1))!;
-          out += String.fromCharCode(parseInt(n + m[0], 8) & 255);
+          bytes.push(parseInt(n + m[0], 8) & 255);
           i += m[0].length;
         } else {
-          out += '\\' + n;
+          add('\\' + n);
         }
     }
   }
+  add('');
   return { text: out, stopped: false };
 }
 
@@ -107,6 +122,14 @@ export function shellQuote(s: string): string {
 export function formatPrintf(format: string, args: string[]): PrintfResult {
   const errors: string[] = [];
   let out = '';
+  // byte escapes in the format (\303\251) are collected and decoded together
+  let bytes: number[] = [];
+  const flush = () => {
+    if (bytes.length) {
+      out += decodeBytes(bytes);
+      bytes = [];
+    }
+  };
   let argIndex = 0;
   const nextArg = (): string | undefined => args[argIndex++];
   let consumedAny = false;
@@ -120,6 +143,7 @@ export function formatPrintf(format: string, args: string[]): PrintfResult {
         let j = i + 1;
         const n = format[j];
         if (n === undefined) {
+          flush();
           out += '\\';
           i++;
           continue;
@@ -136,16 +160,22 @@ export function formatPrintf(format: string, args: string[]): PrintfResult {
           seq += m[0];
         }
         j = i + seq.length;
-        out += processEscapes(seq, 'printf').text;
+        if (/^\\(x[0-9a-fA-F]|[0-7])/.test(seq)) bytes.push(seq[1] === 'x' ? parseInt(seq.slice(2), 16) : parseInt(seq.slice(1), 8) & 255);
+        else {
+          flush();
+          out += processEscapes(seq, 'printf').text;
+        }
         i = j;
         continue;
       }
       if (c !== '%') {
+        flush();
         out += c;
         i++;
         continue;
       }
       if (format[i + 1] === '%') {
+        flush();
         out += '%';
         i += 2;
         continue;
@@ -154,6 +184,7 @@ export function formatPrintf(format: string, args: string[]): PrintfResult {
       if (!m) {
         const bad = format.slice(i, i + 2);
         errors.push(`${bad.slice(1) || '%'}: invalid format character`);
+        flush();
         return { output: out, errors, stopped: false };
       }
       i += m[0].length;
@@ -180,6 +211,7 @@ export function formatPrintf(format: string, args: string[]): PrintfResult {
           s = String(Math.abs(n));
           if (precision !== null) s = s.padStart(precision, '0');
           s = (n < 0 ? '-' : flags.includes('+') ? '+' : flags.includes(' ') ? ' ' : '') + s;
+          flush();
           out += pad(s, width, left, zero && precision === null);
           n = 0;
           break;
@@ -194,6 +226,7 @@ export function formatPrintf(format: string, args: string[]): PrintfResult {
           if (conv === 'X') s = s.toUpperCase();
           if (precision !== null) s = s.padStart(precision, '0');
           if (flags.includes('#') && n !== 0) s = (conv === 'o' ? '0' : conv === 'x' ? '0x' : conv === 'X' ? '0X' : '') + s;
+          flush();
           out += pad(s, width, left, zero && precision === null);
           break;
         }
@@ -214,27 +247,35 @@ export function formatPrintf(format: string, args: string[]): PrintfResult {
           if (conv === 'E' || conv === 'G') s = s.toUpperCase();
           if (n >= 0 && flags.includes('+')) s = '+' + s;
           else if (n >= 0 && flags.includes(' ')) s = ' ' + s;
+          flush();
           out += pad(s, width, left, zero);
           break;
         }
         case 'c':
           s = (arg ?? '').slice(0, 1);
+          flush();
           out += pad(s, width, left, false);
           break;
         case 's':
           s = arg ?? '';
           if (precision !== null) s = s.slice(0, precision);
+          flush();
           out += pad(s, width, left, false);
           break;
         case 'b': {
           const r = processEscapes(arg ?? '', 'b');
           s = r.text;
           if (precision !== null) s = s.slice(0, precision);
+          flush();
           out += pad(s, width, left, false);
-          if (r.stopped) return { output: out, errors, stopped: true };
+          if (r.stopped) {
+            flush();
+            return { output: out, errors, stopped: true };
+          }
           break;
         }
         case 'q':
+          flush();
           out += pad(shellQuote(arg ?? ''), width, left, false);
           break;
       }
@@ -242,5 +283,6 @@ export function formatPrintf(format: string, args: string[]): PrintfResult {
     // Reuse the format only if it consumed arguments and some remain.
     if (argIndex >= args.length || argIndex === startIndex || !consumedAny) break;
   }
+  flush();
   return { output: out, errors, stopped: false };
 }

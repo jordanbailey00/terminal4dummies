@@ -1,7 +1,7 @@
 // Builtins that describe commands: type, command, builtin, hash, help, history.
 
 import { findInPath, spawnProgram } from '../exec';
-import { BUILTINS, BUILTIN_HELP, KEYWORDS, defineBuiltin, type BuiltinContext } from './registry';
+import { BUILTINS, BUILTIN_HELP, KEYWORDS, defineBuiltin, formatBuiltinHelp, type BuiltinContext } from './registry';
 
 type Kind = 'alias' | 'keyword' | 'function' | 'builtin' | 'file';
 
@@ -227,10 +227,7 @@ defineBuiltin(
       for (const [n, h] of matches) {
         if (short) await ctx.out(`${n}: ${h.usage}\n`);
         else if (desc) await ctx.out(`${n} - ${h.summary}\n`);
-        else {
-          const body = h.body ? '\n' + h.body.split('\n').map((l) => (l ? '    ' + l : '    ')).join('\n') + '\n' : '\n';
-          await ctx.out(`${n}: ${h.usage}\n    ${h.summary}\n${body}`);
-        }
+        else await ctx.out(formatBuiltinHelp(n, h));
       }
     }
     return status;

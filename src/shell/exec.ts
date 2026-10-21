@@ -207,14 +207,20 @@ async function execChild(sh: Shell, parent: CommandContext, argv: string[], opts
   const path = argv[0].includes('/')
     ? argv[0]
     : findInPath(sh.system.fs, argv[0], env.get('PATH') ?? '', { cwd, creds, umask: parent.umask });
-  if (!path) return 127;
+  if (!path) {
+    sh.system.emitExec({ argv, kind: 'not-found', status: 127, uid: creds.uid, cwd });
+    return 127;
+  }
   const io = IO.of(
     parent.proc.job,
     opts.stdin ?? unwrapIn(parent.stdin),
     opts.stdout ?? unwrapOut(parent.stdout),
     opts.stderr ?? unwrapOut(parent.stderr),
   );
-  return spawnProgram(sh, { path, argv, env, io, creds, cwd, umask: opts.umask ?? parent.umask });
+  const status = await spawnProgram(sh, { path, argv, env, io, creds, cwd, umask: opts.umask ?? parent.umask });
+  // programs started by programs (sudo whoami, xargs rm, find -exec) count as commands that ran
+  sh.system.emitExec({ argv, kind: 'external', status, path, uid: creds.uid, cwd });
+  return status;
 }
 
 function unwrapIn(s: InputStream): InputStream {

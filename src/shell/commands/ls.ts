@@ -71,6 +71,11 @@ interface Entry {
   /** Target of a symlink (null = dangling, undefined = not a link). */
   target?: Inode | null;
   linkText?: string;
+  /**
+   * In a directory we may read but not enter (r without x): the name is
+   * known, and its type (from the directory itself), but nothing else.
+   */
+  deniedType?: Inode['type'];
 }
 
 interface LsOptions {
@@ -152,6 +157,7 @@ function sortEntries(entries: Entry[], o: LsOptions): Entry[] {
 }
 
 function indicator(e: Entry, o: LsOptions): string {
+  if (o.classify !== 'none' && e.deniedType === 'dir') return '/';
   if (o.classify === 'none' || !e.node) return '';
   const n = e.node;
   if (n.type === 'dir') return '/';
@@ -329,6 +335,10 @@ class Lister {
     const now = sys.now();
     const rows = entries.map((e) => {
       const n = e.node;
+      if (!n && e.deniedType) {
+        const t = e.deniedType === 'dir' ? 'd' : e.deniedType === 'symlink' ? 'l' : e.deniedType === 'chardev' ? 'c' : '-';
+        return { e, inode: '?', blocks: '?', mode: t + '?????????', nlink: '?', owner: '?', group: '?', size: '?', date: '?' };
+      }
       if (!n) return null;
       const owner = o.numeric ? String(n.uid) : sys.userName(n.uid);
       const group = o.numeric ? String(n.gid) : sys.groupName(n.gid);
@@ -362,6 +372,8 @@ class Lister {
     const wo = w('owner');
     const wg = w('group');
     const ws = w('size');
+    // a "?" date is right-aligned in the usual width of the date column
+    const dateWidth = Math.max((o.fullTime ? fullTime(now) : lsDate(now, now)).length, ...valid.map((r) => r.date.length));
     const anyQuoted = this.anyQuoted(entries);
     for (const r of valid) {
       let line = '';
@@ -370,7 +382,7 @@ class Lister {
       line += r.mode + ' ' + r.nlink.padStart(wl) + ' ';
       if (o.showOwner) line += r.owner.padEnd(wo) + ' ';
       if (o.showGroup) line += r.group.padEnd(wg) + ' ';
-      line += r.size.padStart(ws) + ' ' + r.date + ' ';
+      line += r.size.padStart(ws) + ' ' + r.date.padStart(dateWidth) + ' ';
       line += this.displayName(r.e, anyQuoted).text;
       if (r.e.node?.type === 'symlink' && r.e.linkText !== undefined) {
         let target = r.e.linkText;
@@ -632,8 +644,11 @@ export const lsCommand = defineCommand({
       await ctx.checkpoint();
       const fs = ctx.fs;
       let names: string[];
+      let types: Map<string, Inode['type']>;
       try {
-        names = fs.readdir(e.path);
+        const list = fs.readdirEntries(e.path);
+        names = list.map(([n]) => n);
+        types = new Map(list.map(([n, node]) => [n, node.type]));
       } catch (err) {
         await lister.flush();
         await ctx.error(`cannot open directory ${q(label)}: ${errText(err)}`);
@@ -655,14 +670,29 @@ export const lsCommand = defineCommand({
       const entries: Entry[] = [];
       const base = e.path === '/' ? '' : e.path.replace(/\/+$/, '');
       if (o.all) {
-        entries.push(makeEntry(ctx, '.', e.path, false));
-        entries.push(makeEntry(ctx, '..', base + '/..', false));
+        for (const [name, path] of [['.', e.path], ['..', base + '/..']]) {
+          const dot = makeEntry(ctx, name, path, false);
+          if (!dot.node) dot.deniedType = 'dir';
+          entries.push(dot);
+        }
       }
+      // without x on the directory, only what readdir says is known; like GNU ls,
+      // complain about each entry that would need more (long format, -F, -s, sorting)
+      const needsStat = o.format === 'long' || o.size || o.sort === 'time' || o.sort === 'size';
       for (const name of names) {
         if (name.startsWith('.') && !o.all && !o.almostAll) continue;
         if (o.ignoreBackups && name.endsWith('~')) continue;
         if (o.ignore.some((re) => re.test(name))) continue;
-        entries.push(makeEntry(ctx, name, base + '/' + name, o.dereference));
+        const child = makeEntry(ctx, name, base + '/' + name, o.dereference);
+        if (!child.node) {
+          child.deniedType = types.get(name) ?? 'file';
+          if (needsStat || (o.classify === 'classify' && child.deniedType === 'file')) {
+            await lister.flush();
+            await ctx.error(`cannot access ${q(base + '/' + name)}: Permission denied`);
+            lister.status = Math.max(lister.status, 1);
+          }
+        }
+        entries.push(child);
       }
       const sorted = sortEntries(entries, o);
       if (o.format === 'long' || o.size) lister.push(lister.totalLine(sorted));

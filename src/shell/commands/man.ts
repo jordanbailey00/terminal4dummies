@@ -10,7 +10,7 @@ import { COMMANDS, defineCommand, errText, getopts } from './util';
 // less / more
 
 async function pagerCommand(ctx: CommandContext, more: boolean): Promise<number> {
-  const opts = await getopts(ctx, { short: 'NSFRXEiI', long: { 'LINE-NUMBERS': 'N', 'chop-long-lines': 'S', 'quit-if-one-screen': 'F', 'RAW-CONTROL-CHARS': 'R', 'ignore-case': 'i' } }, false);
+  const opts = await getopts(ctx, { short: 'NSFRXEiI', long: { 'LINE-NUMBERS': 'N', 'chop-long-lines': 'S', 'quit-if-one-screen': 'F', 'RAW-CONTROL-CHARS': 'R', 'ignore-case': 'i', 'IGNORE-CASE': 'I' } }, false);
   if (!opts) return 1;
   let startLine: number | undefined;
   const files = opts.operands.filter((f) => {
@@ -57,7 +57,7 @@ async function pagerCommand(ctx: CommandContext, more: boolean): Promise<number>
     await ctx.out(text);
     return status;
   }
-  await runPager(ctx, text, { name, more, lineNumbers: opts.has('N'), chop: opts.has('S'), startLine });
+  await runPager(ctx, text, { name, more, lineNumbers: opts.has('N'), chop: opts.has('S'), startLine, ignoreCase: opts.has('I') ? 'always' : opts.has('i') ? 'smart' : 'never' });
   return status;
 }
 
@@ -479,7 +479,8 @@ defineCommand({
         await ctx.out(text.replace(/\x1b\[[0-9;]*m/g, ''));
         continue;
       }
-      await runPager(ctx, text, { name, manTitle: `Manual page ${name}(${page.section})` });
+      // man runs less with -i: searches ignore case unless they contain capitals
+      await runPager(ctx, text, { name, manTitle: `Manual page ${name}(${page.section})`, ignoreCase: 'smart' });
     }
     return status;
   },

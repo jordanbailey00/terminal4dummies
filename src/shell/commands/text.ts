@@ -4,13 +4,14 @@
 
 import { echoText } from '../builtins/core';
 import { compareLocale } from '../collate';
+import type { InputStream } from '../streams';
 import type { CommandContext } from '../types';
 import { formatPrintf } from '../util/printf';
 import { base64Decode, base64Encode, md5, sha1, sha256 } from '../util/hash';
 import { FsError, type Inode } from '../vfs/fs';
 import { stringWidth } from '../wcwidth';
 import { RegexError, buildMatcher } from './regex';
-import { defineCommand, errText, getopts, parseOpts, OptError, q, qf, ql, readLines, readSources, splitLines } from './util';
+import { defineCommand, deviceStream, errText, getopts, parseOpts, OptError, q, qf, ql, readLines, readSources, splitLines } from './util';
 
 async function missing(ctx: CommandContext, msg = 'missing operand'): Promise<number> {
   await ctx.error(msg);
@@ -18,9 +19,12 @@ async function missing(ctx: CommandContext, msg = 'missing operand'): Promise<nu
   return 1;
 }
 
-/** Legacy "-5" style counts for head/tail. */
-function legacyCount(args: string[]): string[] {
-  return args.map((a) => (/^-\d+$/.test(a) ? `-n${a.slice(1)}` : /^\+\d+$/.test(a) ? `-n${a}` : a));
+/** Legacy "-5" (and tail's "+5") counts; like GNU, only as the first argument. */
+function legacyCount(args: string[], plus = false): string[] {
+  const [a, ...rest] = args;
+  if (a !== undefined && /^-\d+$/.test(a)) return [`-n${a.slice(1)}`, ...rest];
+  if (plus && a !== undefined && /^\+\d+$/.test(a) && rest.length <= 1) return [`-n${a}`, ...rest];
+  return args;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,11 +90,14 @@ defineCommand({
     for (const f of files) {
       await ctx.checkpoint();
       let text: string | null = null;
+      // stdin and devices (/dev/urandom) are read as streams that may never end
+      let stream: InputStream | null = f === '-' ? ctx.stdin : null;
       if (f !== '-') {
         try {
           const node = ctx.fs.stat(f);
           if (node.type === 'dir') throw new FsError('EISDIR', f);
-          text = ctx.fs.readFile(f);
+          stream = deviceStream(ctx, f);
+          if (!stream) text = ctx.fs.readFile(f);
         } catch (e) {
           await ctx.error(`cannot open ${q(f)} for reading: ${errText(e)}`);
           status = 1;
@@ -101,18 +108,33 @@ defineCommand({
         await ctx.out(`${first ? '' : '\n'}==> ${f === '-' ? 'standard input' : f} <==\n`);
       }
       first = false;
-      if (text === null && mode === 'lines' && !count.neg) {
-        // stream from stdin, stopping early (so `yes | head` ends)
+      if (stream && mode === 'lines' && !count.neg) {
+        // stop reading early, so `yes | head` ends
         let n = 0;
         if (count.n === 0) continue;
-        for await (const { line, nl } of readLines(ctx.stdin)) {
+        for await (const { line, nl } of readLines(stream)) {
           await ctx.out(line + (nl ? '\n' : ''));
           if (++n >= count.n) break;
         }
-        ctx.stdin.close();
+        stream.close();
         continue;
       }
-      const data = text ?? (await ctx.stdin.readAll());
+      if (stream && mode === 'bytes' && !count.neg) {
+        let bytes = new Uint8Array(0);
+        while (bytes.length < count.n) {
+          const chunk = await stream.read(ctx.signal);
+          if (chunk === null) break;
+          const more = new TextEncoder().encode(chunk);
+          const joined = new Uint8Array(bytes.length + more.length);
+          joined.set(bytes);
+          joined.set(more, bytes.length);
+          bytes = joined;
+        }
+        stream.close();
+        await ctx.out(new TextDecoder().decode(bytes.slice(0, count.n)));
+        continue;
+      }
+      const data = text ?? (await stream!.readAll());
       if (mode === 'bytes') {
         const bytes = new TextEncoder().encode(data);
         const slice = count.neg ? bytes.slice(0, Math.max(0, bytes.length - count.n)) : bytes.slice(0, count.n);
@@ -156,7 +178,7 @@ defineCommand({
   run: async (ctx) => {
     let opts;
     try {
-      opts = parseOpts(legacyCount(ctx.args), { short: 'c:fFn:qs:v', long: { bytes: { key: 'c', arg: 'required' }, follow: { key: 'f', arg: 'optional' }, lines: { key: 'n', arg: 'required' }, quiet: 'q', silent: 'q', verbose: 'v', 'sleep-interval': { key: 's', arg: 'required' }, retry: 'retry' } });
+      opts = parseOpts(legacyCount(ctx.args, true), { short: 'c:fFn:qs:v', long: { bytes: { key: 'c', arg: 'required' }, follow: { key: 'f', arg: 'optional' }, lines: { key: 'n', arg: 'required' }, quiet: 'q', silent: 'q', verbose: 'v', 'sleep-interval': { key: 's', arg: 'required' }, retry: 'retry' } });
     } catch (e) {
       if (e instanceof OptError) return missing(ctx, e.message);
       throw e;
@@ -1752,7 +1774,7 @@ defineCommand({
 
 defineCommand({
   name: 'column',
-  pkg: 'util-linux',
+  pkg: 'bsdextrautils',
   size: 43320,
   doc: { category: 'text', summary: 'columnate lists', synopsis: ['column [options] [file ...]'], description: 'The column utility formats its input into multiple columns. With -t it lines up a table.', options: [{ flags: '-t, --table', desc: 'Determine the number of columns the input contains and create a table.' }, { flags: '-s, --separator separators', desc: 'Specify the possible input item delimiters (default is whitespace).' }], examples: [{ cmd: 'column -t -s, data.csv', desc: 'Show a CSV as an aligned table.' }, { cmd: 'mount | column -t', desc: 'Line up messy output.' }], seeAlso: ['paste'] },
   run: async (ctx) => {

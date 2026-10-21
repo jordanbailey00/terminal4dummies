@@ -10,6 +10,7 @@ import type { SignalName } from '../streams';
 import type { CommandContext } from '../types';
 import { basename } from '../vfs/path';
 import { DEFAULT_LS_COLORS } from './lscolors';
+import { systemIp } from './net';
 import { DAYS, MONTHS, defineCommand, errText, getopts, pad2, q, ql, tzAbbrev, tzOffset } from './util';
 
 async function missing(ctx: CommandContext, msg = 'missing operand'): Promise<number> {
@@ -122,7 +123,7 @@ defineCommand({
   run: async (ctx) => {
     const a = ctx.args[0];
     if (a === '-I' || a === '--all-ip-addresses') {
-      await ctx.out('10.0.2.15 \n');
+      await ctx.out(`${systemIp(ctx.system)} \n`);
       return 0;
     }
     if (a === '-i' || a === '--ip-address') {

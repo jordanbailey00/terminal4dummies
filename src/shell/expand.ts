@@ -4,7 +4,8 @@
 
 import { expandGlob, hasGlobChars, matchPattern } from './glob';
 import type { IO, Shell } from './interpreter';
-import type { ParamExpansion, Word, WordPart } from './parser/ast';
+import type { ArrayElement, Assignment, ParamExpansion, ParamOp, Word, WordPart } from './parser/ast';
+import { parseInnerWord } from './parser/parser';
 
 /** An expansion failed; bash prints "bash: <message>". */
 export class ExpansionError extends Error {
@@ -223,21 +224,131 @@ function replacePattern(value: string, pattern: string, repl: string, all: boole
   return out;
 }
 
-async function expandParam(sh: Shell, p: ParamExpansion, io: IO): Promise<string> {
-  let name = p.name;
-  if (p.indirect) {
-    const target = sh.getParam(name);
-    if (target === undefined || target === '') throw new ExpansionError(`${name}: invalid indirect expansion`);
-    name = target;
+/** $@, $*, ${a[@]}, ${a[*]} and ${!a[@]} expand to lists ("*": joined with IFS in quotes). */
+interface ListValue {
+  list: string[];
+  star: boolean;
+}
+
+type ParamResult = string | ListValue;
+
+function sq(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+
+/** Elements of an array as [key, value] (dynamic arrays like FUNCNAME included). */
+function arrayEntries(sh: Shell, name: string): [string, string][] {
+  return sh.state.entries(name);
+}
+
+/** The key for name[index]: an arithmetic index, or for associative arrays a string. */
+export async function subscriptKey(sh: Shell, name: string, index: string, io: IO): Promise<string | number> {
+  if (sh.state.isAssoc(name)) return expandToString(sh, parseInnerWord(index), io);
+  return sh.arithmetic(index, io);
+}
+
+async function elementValue(sh: Shell, name: string, index: string, io: IO): Promise<string | undefined> {
+  const key = await subscriptKey(sh, name, index, io);
+  const v = sh.state.getElement(name, key);
+  if (v === null) {
+    // bash complains but carries on with an empty value
+    await sh.printError(io, `${name}: bad array subscript`);
+    return undefined;
   }
-  const raw = sh.getParam(name);
+  return v;
+}
+
+async function listOp(sh: Shell, name: string, isArray: boolean, star: boolean, op: ParamOp, io: IO): Promise<ParamResult> {
+  const entries = isArray ? arrayEntries(sh, name) : null;
+  const values = entries ? entries.map(([, v]) => v) : [...sh.state.positional];
+  const label = isArray ? `${name}[${star ? '*' : '@'}]` : name;
+  const list = (l: string[]): ListValue => ({ list: l, star });
+  switch (op.kind) {
+    case 'plain':
+    case 'keys':
+      return list(values);
+    case 'bad':
+      throw new ExpansionError(`\${${op.text}}: bad substitution`);
+    case 'length':
+      return String(values.length);
+    case 'default':
+    case 'assign':
+    case 'alt':
+    case 'error': {
+      const present = op.colon ? values.join('') !== '' : values.length > 0;
+      if (op.kind === 'alt') return present ? expandToString(sh, op.word, io) : list([]);
+      if (present) return list(values);
+      if (op.kind === 'default') return expandToString(sh, op.word, io);
+      if (op.kind === 'assign') throw new ExpansionError(`${label}: cannot assign in this way`);
+      const msg = await expandToString(sh, op.word, io);
+      throw new ExpansionError(`${label}: ${msg || (op.colon ? 'parameter null or not set' : 'parameter not set')}`, true);
+    }
+    case 'trim': {
+      const pat = await expandToPattern(sh, op.pattern, io);
+      return list(values.map((v) => trimPattern(v, pat, op.side, op.greedy)));
+    }
+    case 'replace': {
+      const pat = await expandToPattern(sh, op.pattern, io);
+      const repl = op.replacement ? await expandToString(sh, op.replacement, io) : '';
+      return list(values.map((v) => replacePattern(v, pat, repl, op.all, op.anchor)));
+    }
+    case 'case':
+      return list(values.map((v) => changeCase(v, op.upper, op.all)));
+    case 'substr': {
+      const off = await sh.arithmetic(op.offset, io);
+      const len = op.length === null ? null : await sh.arithmetic(op.length, io);
+      if (len !== null && len < 0) throw new ExpansionError(`${op.length}: substring expression < 0`);
+      let slice: string[];
+      if (entries && !sh.state.isAssoc(name)) {
+        // offsets of an indexed array are indices: elements from ${a[off]} on
+        const max = entries.length ? Number(entries[entries.length - 1][0]) : -1;
+        const start = off < 0 ? max + 1 + off : off;
+        slice = start < 0 ? [] : entries.filter(([k]) => Number(k) >= start).map(([, v]) => v);
+      } else {
+        // positional parameters count from $0
+        const all = entries ? values : [sh.state.arg0, ...values];
+        const start = off < 0 ? all.length + off : off;
+        slice = start < 0 ? [] : all.slice(start);
+      }
+      return list(len === null ? slice : slice.slice(0, len));
+    }
+  }
+}
+
+function changeCase(value: string, upper: boolean, all: boolean): string {
+  if (all) return upper ? value.toUpperCase() : value.toLowerCase();
+  if (value === '') return value;
+  const first = [...value][0];
+  return (upper ? first.toUpperCase() : first.toLowerCase()) + value.slice(first.length);
+}
+
+async function expandParam(sh: Shell, p: ParamExpansion, io: IO): Promise<ParamResult> {
   const op = p.op;
+  if (op.kind === 'bad') throw new ExpansionError(`\${${op.text}}: bad substitution`);
+  let name = p.name;
+  let index = p.index;
+  if (op.kind === 'keys') return { list: arrayEntries(sh, name).map(([k]) => k), star: index === '*' };
+  if (p.indirect) {
+    const target = index === undefined ? sh.getParam(name) : await elementValue(sh, name, index, io);
+    if (target === undefined || target === '') throw new ExpansionError(`${name}: invalid indirect expansion`);
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)\[(.*)\]$/s.exec(target);
+    if (m) {
+      name = m[1];
+      index = m[2];
+    } else if (/^([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!-])$/.test(target)) {
+      name = target;
+      index = undefined;
+    } else throw new ExpansionError(`${target}: invalid variable name`);
+  }
+  if (index === '@' || index === '*') return listOp(sh, name, true, index === '*', op, io);
+  if (index === undefined && (name === '@' || name === '*')) return listOp(sh, name, false, name === '*', op, io);
+
+  const raw = index === undefined ? sh.getParam(name) : await elementValue(sh, name, index, io);
+  const label = index === undefined ? name : `${name}[${index}]`;
   const isSet = raw !== undefined;
   const value = raw ?? '';
   const unbound = () => {
-    if (sh.state.options.nounset && !isSet && !['@', '*'].includes(name)) {
-      throw new ExpansionError(`${name}: unbound variable`, true);
-    }
+    if (sh.state.options.nounset && !isSet) throw new ExpansionError(`${label}: unbound variable`, true);
   };
   switch (op.kind) {
     case 'plain':
@@ -245,7 +356,6 @@ async function expandParam(sh: Shell, p: ParamExpansion, io: IO): Promise<string
       return value;
     case 'length':
       unbound();
-      if (name === '@' || name === '*') return String(sh.state.positional.length);
       return String([...value].length);
     case 'default': {
       const use = op.colon ? !isSet || value === '' : !isSet;
@@ -256,7 +366,8 @@ async function expandParam(sh: Shell, p: ParamExpansion, io: IO): Promise<string
       if (!use) return value;
       const v = await expandToString(sh, op.word, io);
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new ExpansionError(`$${name}: cannot assign in this way`);
-      sh.setVar(name, v);
+      if (index === undefined) sh.setVar(name, v);
+      else await sh.assignElement(name, index, v, false, io);
       return v;
     }
     case 'alt': {
@@ -267,7 +378,7 @@ async function expandParam(sh: Shell, p: ParamExpansion, io: IO): Promise<string
       const bad = op.colon ? !isSet || value === '' : !isSet;
       if (!bad) return value;
       const msg = await expandToString(sh, op.word, io);
-      throw new ExpansionError(`${name}: ${msg || (op.colon ? 'parameter null or not set' : 'parameter not set')}`, true);
+      throw new ExpansionError(`${label}: ${msg || (op.colon ? 'parameter null or not set' : 'parameter not set')}`, true);
     }
     case 'trim': {
       unbound();
@@ -286,7 +397,7 @@ async function expandParam(sh: Shell, p: ParamExpansion, io: IO): Promise<string
       let off = await sh.arithmetic(op.offset, io);
       if (off < 0) off = Math.max(0, chars.length + off);
       if (op.length === null) return chars.slice(off).join('');
-      let len = await sh.arithmetic(op.length, io);
+      const len = await sh.arithmetic(op.length, io);
       if (len < 0) {
         const end = chars.length + len;
         if (end < off) throw new ExpansionError(`${op.length}: substring expression < 0`);
@@ -294,14 +405,58 @@ async function expandParam(sh: Shell, p: ParamExpansion, io: IO): Promise<string
       }
       return chars.slice(off, off + len).join('');
     }
-    case 'case': {
+    case 'case':
       unbound();
-      if (op.all) return op.upper ? value.toUpperCase() : value.toLowerCase();
-      if (value === '') return value;
-      const first = [...value][0];
-      return (op.upper ? first.toUpperCase() : first.toLowerCase()) + value.slice(first.length);
-    }
+      return changeCase(value, op.upper, op.all);
   }
+}
+
+/** Add a parameter's value to the current field(s). */
+function addParam(sh: Shell, f: FieldBuilder, r: ParamResult, inDQ: boolean): void {
+  if (typeof r === 'string') {
+    f.add(r, inDQ ? 'q' : 'e');
+    return;
+  }
+  if (inDQ && r.star) {
+    const ifs = sh.state.get('IFS');
+    f.add(r.list.join(ifs === undefined ? ' ' : ifs.slice(0, 1)), 'q');
+    return;
+  }
+  r.list.forEach((v, i) => {
+    if (i > 0) f.split();
+    f.add(v, inDQ ? 'q' : 'e');
+    if (inDQ) f.markQuoted();
+  });
+}
+
+export interface ArrayItem {
+  /** Subscript text ([key]=value), or null for the next index. */
+  key: string | null;
+  value: string;
+  append?: boolean;
+}
+
+/** Expand the elements of an array literal: (a "b c" *.txt [5]=x). */
+export async function expandArrayElements(sh: Shell, elems: ArrayElement[], io: IO): Promise<ArrayItem[]> {
+  const out: ArrayItem[] = [];
+  for (const el of elems) {
+    if (el.index !== null) out.push({ key: el.index, value: await expandToString(sh, el.value, io), append: el.append });
+    else for (const v of await expandWords(sh, [el.value], io)) out.push({ key: null, value: v });
+  }
+  return out;
+}
+
+/**
+ * An assignment argument of declare/local/export/readonly, as one string.
+ * Array elements are expanded now and quoted so the builtin can read them back.
+ */
+async function expandDeclWord(sh: Shell, a: Assignment, io: IO): Promise<string> {
+  const head = a.name + (a.index !== undefined ? `[${a.index}]` : '') + (a.append ? '+=' : '=');
+  if (a.array) {
+    const items = await expandArrayElements(sh, a.array, io);
+    return head + '(' + items.map((it) => (it.key !== null ? `[${it.key}]${it.append ? '+' : ''}=` : '') + sq(it.value)).join(' ') + ')';
+  }
+  return head + (a.value ? await expandToString(sh, a.value, io) : '');
 }
 
 // ---------------------------------------------------------------------------
@@ -319,12 +474,15 @@ async function expandParts(sh: Shell, parts: WordPart[], f: FieldBuilder, inDQ: 
         break;
       case 'dq': {
         const only = part.parts.length === 1 ? part.parts[0] : null;
-        if (only && only.type === 'param' && only.param.name === '@' && only.param.op.kind === 'plain' && !only.param.indirect) {
-          sh.state.positional.forEach((v, i) => {
-            if (i > 0) f.split();
-            f.add(v, 'q');
-            f.markQuoted();
-          });
+        if (only && only.type === 'param') {
+          // "$@" and "${a[@]}" with no elements produce no word at all
+          const r = await expandParam(sh, only.param, io);
+          if (typeof r !== 'string' && !r.star) {
+            addParam(sh, f, r, true);
+            break;
+          }
+          f.markQuoted();
+          addParam(sh, f, r, true);
           break;
         }
         f.markQuoted();
@@ -337,36 +495,17 @@ async function expandParts(sh: Shell, parts: WordPart[], f: FieldBuilder, inDQ: 
         else f.add(home, 'q');
         break;
       }
-      case 'param': {
-        const p = part.param;
-        if ((p.name === '@' || p.name === '*') && p.op.kind === 'plain' && !p.indirect) {
-          const ps = sh.state.positional;
-          if (inDQ && p.name === '@') {
-            ps.forEach((v, i) => {
-              if (i > 0) f.split();
-              f.add(v, 'q');
-            });
-          } else if (inDQ) {
-            const ifs = sh.state.get('IFS');
-            const sep = ifs === undefined ? ' ' : ifs.slice(0, 1);
-            f.add(ps.join(sep), 'q');
-          } else {
-            ps.forEach((v, i) => {
-              if (i > 0) f.split();
-              f.add(v, 'e');
-            });
-          }
-          break;
-        }
-        const v = await expandParam(sh, p, io);
-        f.add(v, inDQ ? 'q' : 'e');
+      case 'param':
+        addParam(sh, f, await expandParam(sh, part.param, io), inDQ);
         break;
-      }
       case 'cmdsub': {
         const out = await sh.commandSubstitution(part.body, io);
         f.add(out, inDQ ? 'q' : 'e');
         break;
       }
+      case 'procsub':
+        f.add(await sh.processSubstitution(part.dir, part.body, io), 'q');
+        break;
       case 'arith': {
         const v = await sh.arithmetic(part.expr, io);
         f.add(String(v), inDQ ? 'q' : 'e');
@@ -449,6 +588,10 @@ export async function expandWords(sh: Shell, words: Word[], io: IO): Promise<str
   const argv: string[] = [];
   const ifs = sh.state.get('IFS') ?? ' \t\n';
   for (const word of words) {
+    if (word.decl) {
+      argv.push(await expandDeclWord(sh, word.decl, io));
+      continue;
+    }
     for (const w of braceExpand(word)) {
       const f = new FieldBuilder();
       await expandParts(sh, w.parts, f, false, io);

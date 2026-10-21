@@ -1,5 +1,6 @@
 // `test` / `[` and the file/string/number checks shared with `[[ ]]`.
 
+import { evaluateArithmetic } from '../arith';
 import type { Shell } from '../interpreter';
 import { VirtualFS } from '../vfs/fs';
 import { defineBuiltin, type BuiltinContext } from './registry';
@@ -20,8 +21,18 @@ export function unaryTest(sh: Shell, op: string, arg: string): boolean {
       return arg === '';
     case '-n':
       return arg !== '';
-    case '-v':
-      return sh.state.isSet(arg);
+    case '-v': {
+      const m = /^([A-Za-z_][A-Za-z0-9_]*)\[(.+)\]$/s.exec(arg);
+      if (!m) return sh.state.isSet(arg);
+      const [, name, sub] = m;
+      if (sub === '@' || sub === '*') return sh.state.entries(name).length > 0;
+      try {
+        const key = sh.state.isAssoc(name) ? sub : evaluateArithmetic(sub, sh.arithEnv());
+        return (sh.state.getElement(name, key) ?? undefined) !== undefined;
+      } catch {
+        return false;
+      }
+    }
     case '-o':
       return false;
     case '-t':

@@ -3,10 +3,11 @@
 // pwd, du, df, truncate, mktemp, link, unlink, sync.
 
 import type { CommandContext } from '../types';
+import { encodeBinaryStream } from '../vfs/binstream';
 import { FsError, VirtualFS, dataSize, inodeSize, isBinaryData, type FileData, type Inode } from '../vfs/fs';
 import { basename, dirname, normalize, resolvePath } from '../vfs/path';
 import { modeString } from './ls';
-import { blocksFor, defineCommand, errText, getopts, humanSize, pad2, q, qf, ql, readLines, tzOffset } from './util';
+import { blocksFor, defineCommand, deviceStream, errText, getopts, humanSize, pad2, q, qf, ql, readLines, tzOffset } from './util';
 
 // ---------------------------------------------------------------------------
 // shared helpers
@@ -108,15 +109,17 @@ defineCommand({
     const files = opts.operands.length ? opts.operands : ['-'];
     for (const f of files) {
       await ctx.checkpoint();
-      if (f === '-') {
+      // stdin and devices like /dev/urandom are streamed (they may never end)
+      const stream = f === '-' ? ctx.stdin : deviceStream(ctx, f);
+      if (stream) {
         if (plain) {
           for (;;) {
-            const chunk = await ctx.stdin.read();
+            const chunk = await stream.read(ctx.signal);
             if (chunk === null) break;
             await ctx.out(chunk);
           }
         } else {
-          for await (const { line, nl } of readLines(ctx.stdin)) {
+          for await (const { line, nl } of readLines(stream)) {
             const t = formatLine(line, nl);
             if (t !== null) await ctx.out(t);
           }
@@ -131,6 +134,11 @@ defineCommand({
       } catch (e) {
         await ctx.error(`${qf(f)}: ${errText(e)}`);
         status = 1;
+        continue;
+      }
+      if (plain && typeof data !== 'string' && !ctx.stdout.isTTY) {
+        // into a pipe or file: keep the binary data intact (cat a.tgz | tar xz)
+        await ctx.out(encodeBinaryStream(data));
         continue;
       }
       const text = typeof data === 'string' ? data : ctx.fs.readFile(f);
@@ -1356,12 +1364,42 @@ export function describeFile(ctx: CommandContext, path: string, node: Inode): st
     return `${kind}, ${charset} executable`;
   }
   const lower = path.toLowerCase();
-  if (lower.endsWith('.json') && /^\s*[[{]/.test(data)) return 'JSON text data';
+  // like file(1), JSON and CSV are recognised by their content, not the name
+  if (looksLikeJson(data)) return 'JSON text data';
   if (lower.endsWith('.html') || /^\s*<!doctype html/i.test(data)) return `HTML document, ${charset}`;
-  if (lower.endsWith('.csv')) return `CSV text`;
+  if (looksLikeCsv(data)) return `CSV ${charset}`;
   if (lower.endsWith('.py')) return `Python script, ${charset}${exec ? ' executable' : ''}`;
   if (lower.endsWith('.md')) return charset;
   return charset + (exec ? ' executable' : '');
+}
+
+function looksLikeJson(data: string): boolean {
+  const t = data.trim();
+  if (!/^[[{]/.test(t)) return false;
+  try {
+    JSON.parse(t);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Two or more lines with the same number (more than one) of comma-separated fields. */
+function looksLikeCsv(data: string): boolean {
+  const lines = data.split('\n').slice(0, 10);
+  if (lines[lines.length - 1] === '') lines.pop();
+  if (lines.length < 2) return false;
+  const fields = (l: string) => {
+    let n = 1;
+    let quoted = false;
+    for (const c of l) {
+      if (c === '"') quoted = !quoted;
+      else if (c === ',' && !quoted) n++;
+    }
+    return n;
+  };
+  const n = fields(lines[0]);
+  return n > 1 && lines.every((l) => fields(l) === n);
 }
 
 function hashHex(s: string): string {
@@ -1443,7 +1481,8 @@ defineCommand({
     seeAlso: ['dirname', 'realpath'],
   },
   run: async (ctx) => {
-    const opts = await getopts(ctx, { short: 'as:z', long: { multiple: 'a', suffix: { key: 's', arg: 'required' }, zero: 'z' } });
+    // like GNU basename, options must come before the names ("+as:z")
+    const opts = await getopts(ctx, { short: 'as:z', long: { multiple: 'a', suffix: { key: 's', arg: 'required' }, zero: 'z' }, stopAtOperand: true });
     if (!opts) return 1;
     const ops = opts.operands;
     if (ops.length === 0) return missingOperand(ctx);
