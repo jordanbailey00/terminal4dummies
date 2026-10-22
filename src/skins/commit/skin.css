@@ -1,0 +1,905 @@
+/* The site's look, modeled on the Commit Mono website (commitmono.com): two
+   colors, one size of monospace text, underlined links, dithered hover and
+   selection states, inverted focus. A layer over the original styles
+   (src/styles), which `--mode classic` shows without it.
+   Every rule starts with html[data-skin='commit'] so it beats the original
+   styles whatever order the style sheets load in. */
+
+/* ------------------------------------------------------------------ colors */
+/* commitmono.com's #aaa and #111, swapped for dark mode (where the text is a
+   little brighter than theirs), plus a green and a red used sparingly */
+html[data-skin='commit'] {
+  --c-bg: #111111;
+  --c-fg: #c8c8c8;
+  --c-muted: #b4b4b4;
+  --c-faint: #8c8c8c;
+  --c-line: #444444;
+  --c-accent: #5ccf86;
+  --c-danger: #e58b8b;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  html[data-skin='commit']:not([data-theme='dark']) {
+    --c-bg: #aaaaaa;
+    --c-fg: #111111;
+    --c-muted: #222222;
+    --c-faint: #3d3d3d;
+    --c-line: #7a7a7a;
+    --c-accent: #0b5f27;
+    --c-danger: #7d1717;
+    color-scheme: light;
+  }
+}
+html[data-skin='commit'][data-theme='light'] {
+  --c-bg: #aaaaaa;
+  --c-fg: #111111;
+  --c-muted: #222222;
+  --c-faint: #3d3d3d;
+  --c-line: #7a7a7a;
+  --c-accent: #0b5f27;
+  --c-danger: #7d1717;
+  color-scheme: light;
+}
+
+/* the site's own tokens, made from those colors */
+html[data-skin='commit'][data-skin] {
+  --font-text: var(--font-mono);
+  --header-h: 48px;
+  --keys-h: 0px;
+  --bg: var(--c-bg);
+  --bg-hover: transparent;
+  --code-bg: transparent;
+  --line: var(--c-line);
+  --line-strong: var(--c-fg);
+  --fg: var(--c-fg);
+  --fg-muted: var(--c-muted);
+  --fg-faint: var(--c-faint);
+  --middle: #555555;
+  --accent: var(--c-accent);
+  --accent-dim: transparent;
+  --info: var(--c-fg);
+  --warn: var(--c-fg);
+  --danger: var(--c-danger);
+  --term-bg: var(--c-bg);
+  --term-fg: var(--c-fg);
+  --term-line: var(--c-line);
+  --term-chrome: var(--c-fg);
+  /* 1-bit dither patterns: 25%, 50% and 75% of the text color */
+  --bg25: repeating-conic-gradient(var(--c-fg) 0% 25%, transparent 0% 100%) 1px 0.5px / 2px 2px;
+  --bg50: repeating-conic-gradient(var(--c-fg) 0% 25%, transparent 0% 50%, var(--c-fg) 0% 75%, transparent 0% 100%) 1px 0.5px / 2px 2px;
+  --bg75: repeating-conic-gradient(transparent 0% 25%, var(--c-fg) 0% 100%) 1px 0.5px / 2px 2px;
+  scrollbar-color: var(--middle) transparent;
+}
+html[data-skin='commit'] * {
+  scrollbar-color: var(--middle) transparent;
+}
+
+/* -------------------------------------------------------------------- type */
+html[data-skin='commit'] body {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 16px;
+  font-feature-settings: 'ss01', 'ss03', 'ss04', 'ss05';
+}
+/* one size for everything but page titles (and the terminal, which has its own) */
+html[data-skin='commit'] body *:not(h1, h1 *, .xterm, .xterm *) {
+  font-size: 12px;
+}
+html[data-skin='commit'] h1 {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 400;
+  margin: 0 0 16px;
+}
+html[data-skin='commit'] h2,
+html[data-skin='commit'] h3,
+html[data-skin='commit'] h4 {
+  line-height: 16px;
+  font-weight: 700;
+  margin: 0 0 16px;
+}
+html[data-skin='commit'] p {
+  margin: 0 0 16px;
+}
+html[data-skin='commit'] .num {
+  margin-right: 1ch;
+  color: inherit;
+  font-weight: inherit;
+}
+html[data-skin='commit'] ::selection {
+  background: var(--middle);
+  color: var(--fg);
+}
+
+/* ------------------------------------------------- links, buttons and focus */
+html[data-skin='commit'] a,
+html[data-skin='commit'] .btn,
+html[data-skin='commit'] .theme-btn,
+html[data-skin='commit'] .coach-close,
+html[data-skin='commit'] .term-actions button,
+html[data-skin='commit'] .idea {
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg);
+  line-height: 16px;
+  text-decoration: underline;
+  text-decoration-skip-ink: none;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.24ch;
+}
+html[data-skin='commit'] a:hover,
+html[data-skin='commit'] .btn:hover,
+html[data-skin='commit'] .theme-btn:hover,
+html[data-skin='commit'] .coach-close:hover,
+html[data-skin='commit'] .term-actions button:hover,
+html[data-skin='commit'] .idea:hover {
+  background: var(--bg75);
+  color: var(--bg);
+  text-decoration: none;
+}
+html[data-skin='commit'] a:active,
+html[data-skin='commit'] button:active {
+  background: var(--bg50);
+  color: var(--bg);
+}
+html[data-skin='commit'] .btn-accent {
+  font-weight: 700;
+}
+html[data-skin='commit'] .btn:disabled {
+  opacity: 0.33;
+}
+html[data-skin='commit'] :is(a, button, summary, code.runnable):focus-visible {
+  outline: none;
+  background: var(--fg);
+  color: var(--bg);
+  text-decoration: none;
+  animation: skin-flicker 50ms 2;
+}
+
+/* ------------------------------------------------------------------- code */
+html[data-skin='commit'] :not(pre) > code {
+  padding: 0 0.5ch;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+/* commands that type themselves into the terminal when clicked */
+html[data-skin='commit'] .prose code.runnable {
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--fg);
+}
+html[data-skin='commit'] .prose code.runnable::before {
+  color: var(--accent);
+}
+html[data-skin='commit'] .prose code.runnable:hover {
+  background: var(--bg75);
+  color: var(--bg);
+}
+html[data-skin='commit'] .prose code.runnable:is(:hover, :focus-visible)::before {
+  color: inherit;
+}
+html[data-skin='commit'] pre {
+  padding: 8px 2ch;
+  border: 1px solid var(--fg);
+  background: transparent;
+  color: var(--fg);
+  line-height: 16px;
+}
+/* keys look like the keycaps on commitmono.com */
+html[data-skin='commit'] kbd,
+html[data-skin='commit'] .skin-key {
+  display: inline-block;
+  min-width: 0;
+  padding: 0 calc(0.5ch - 1px);
+  border: 1px solid var(--fg);
+  border-bottom-width: 2px;
+  border-radius: 0;
+  color: inherit;
+  line-height: 13px;
+}
+
+/* ------------------------------------------------------------------- prose */
+html[data-skin='commit'] .prose {
+  line-height: 16px;
+}
+html[data-skin='commit'] .prose ul,
+html[data-skin='commit'] .prose ol,
+html[data-skin='commit'] .step-sequence,
+html[data-skin='commit'] .quiz-solution {
+  list-style: none;
+  margin: 0 0 16px;
+  padding-left: 3ch;
+}
+html[data-skin='commit'] .prose li,
+html[data-skin='commit'] .step-sequence li,
+html[data-skin='commit'] .quiz-solution li {
+  position: relative;
+  margin: 0 0 4px;
+}
+html[data-skin='commit'] .prose ul > li::before {
+  content: '•';
+  position: absolute;
+  left: -2ch;
+}
+html[data-skin='commit'] :is(.prose ol, .step-sequence, .quiz-solution) {
+  counter-reset: skin-ol;
+}
+html[data-skin='commit'] :is(.prose ol, .step-sequence, .quiz-solution) > li {
+  counter-increment: skin-ol;
+}
+html[data-skin='commit'] :is(.prose ol, .step-sequence, .quiz-solution) > li::before {
+  content: '#' counter(skin-ol);
+  position: absolute;
+  left: -3ch;
+}
+html[data-skin='commit'] .prose table,
+html[data-skin='commit'] .cheatsheet,
+html[data-skin='commit'] .ref-options {
+  margin: 0 0 16px;
+}
+html[data-skin='commit'] :is(.prose, .cheatsheet, .ref-options) :is(th, td) {
+  padding: 4px 2ch 4px 0;
+  border-bottom: 1px dotted var(--fg);
+}
+html[data-skin='commit'] :is(.prose, .ref-options) th {
+  color: var(--fg);
+  font-weight: 700;
+}
+html[data-skin='commit'] .prose blockquote {
+  padding-left: 2ch;
+  border-left: 1px solid var(--fg);
+  color: var(--fg);
+}
+html[data-skin='commit'] .callout,
+html[data-skin='commit'] .coach-tip,
+html[data-skin='commit'] .quiz-result,
+html[data-skin='commit'] .step-hint {
+  padding: 0 0 0 2ch;
+  border-left: 1px solid var(--fg);
+}
+/* labels such as "tip:" are inverted, like the NEW tags on commitmono.com */
+html[data-skin='commit'] .callout-label {
+  margin-right: 1ch;
+  padding: 0 0.5ch;
+  background: var(--fg);
+  color: var(--bg);
+  font-weight: 400;
+  text-transform: uppercase;
+}
+html[data-skin='commit'] details > summary {
+  position: relative;
+  width: fit-content;
+  margin-left: 4ch;
+  color: var(--fg);
+  list-style: none;
+  cursor: pointer;
+}
+html[data-skin='commit'] details > summary::-webkit-details-marker {
+  display: none;
+}
+html[data-skin='commit'] details > summary::before {
+  content: '[+]';
+  position: absolute;
+  left: -4ch;
+}
+html[data-skin='commit'] details[open] > summary {
+  background: var(--bg25);
+}
+html[data-skin='commit'] details[open] > summary::before {
+  content: '[-]';
+}
+
+/* ------------------------------------------------------------------ header */
+html[data-skin='commit'] .site-header {
+  gap: 4ch;
+  padding: 0 4ch;
+  border-bottom: 0;
+}
+html[data-skin='commit'] .brand {
+  font-weight: 700;
+  text-decoration: none;
+}
+html[data-skin='commit'] .brand b {
+  color: var(--accent);
+}
+html[data-skin='commit'] .site-nav {
+  gap: 4ch;
+  counter-reset: skin-nav;
+}
+/* numbered like the sections of commitmono.com: 01 Emulator 02 Lessons ... */
+html[data-skin='commit'] .site-nav a {
+  counter-increment: skin-nav;
+  text-decoration: none;
+  text-transform: capitalize;
+}
+html[data-skin='commit'] .site-nav a::before {
+  content: counter(skin-nav, decimal-leading-zero) ' ';
+}
+html[data-skin='commit'] .site-nav a.active {
+  background: var(--bg25);
+}
+html[data-skin='commit'] .site-nav a.active:hover {
+  background: var(--bg75);
+}
+html[data-skin='commit'] .theme-btn {
+  text-transform: capitalize;
+}
+@media (max-width: 640px) {
+  html[data-skin='commit'] .site-header,
+  html[data-skin='commit'] .site-nav {
+    gap: 2ch;
+  }
+  html[data-skin='commit'] .site-header {
+    padding: 0 2ch;
+  }
+}
+
+/* ---------------------------------------------------------------- terminal */
+html[data-skin='commit'] .term-titlebar {
+  height: 32px;
+  padding: 0 4ch;
+  border-bottom: 0;
+}
+html[data-skin='commit'] .term-actions {
+  gap: 2ch;
+}
+html[data-skin='commit'] .term-body {
+  padding-left: 4ch;
+}
+html[data-skin='commit'] .mobile-keys {
+  gap: 1ch;
+  border-top: 1px dotted var(--fg);
+}
+html[data-skin='commit'] .mobile-keys button {
+  border: 1px solid var(--fg);
+  border-bottom-width: 2px;
+  border-radius: 0;
+  color: var(--fg);
+}
+html[data-skin='commit'] .mobile-keys button.active {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+html[data-skin='commit'] .term-notice,
+html[data-skin='commit'] .emulator-tip,
+html[data-skin='commit'] .step-toast {
+  padding: 8px 2ch;
+  border: 1px solid var(--fg);
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* keys for the terminal along the bottom, like the footer of commitmono.com */
+html[data-skin='commit'] .skin-keys {
+  display: none;
+}
+html[data-skin='commit']:has(.term-window) {
+  --keys-h: 52px;
+}
+html[data-skin='commit']:has(.term-window) .main-full {
+  height: calc(100dvh - var(--header-h) - var(--keys-h));
+}
+html[data-skin='commit']:has(.term-window) .skin-keys {
+  display: flex;
+  gap: 4ch;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  height: var(--keys-h);
+  padding: 4px 4ch 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--bg);
+  color: var(--fg);
+  white-space: nowrap;
+}
+html[data-skin='commit'] .skin-key-group {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+html[data-skin='commit'] .skin-keycaps {
+  display: flex;
+  gap: 0.5ch;
+  margin-bottom: 2px;
+}
+@media (max-width: 900px), (pointer: coarse) {
+  html[data-skin='commit']:has(.term-window) {
+    --keys-h: 0px;
+  }
+  html[data-skin='commit']:has(.term-window) .skin-keys {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------- page shell */
+html[data-skin='commit'] .page {
+  max-width: 132ch;
+  margin: 0;
+  padding: 48px 4ch 96px;
+}
+html[data-skin='commit'] .page-head {
+  margin-bottom: 32px;
+}
+html[data-skin='commit'] .page-head p,
+html[data-skin='commit'] .index-intro {
+  max-width: 54ch;
+  color: var(--fg);
+}
+/* a new page is uncovered top to bottom in ten steps (a curtain in the
+   background color slides down off the screen) */
+html[data-skin='commit'] #main > *::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  background: var(--bg);
+  pointer-events: none;
+  animation: skin-curtain 440ms steps(10, jump-start) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-skin='commit'] #main > *::before {
+    display: none;
+  }
+  html[data-skin='commit'] :focus-visible {
+    animation: none;
+  }
+}
+@keyframes skin-curtain {
+  99.9% {
+    visibility: visible;
+  }
+  to {
+    transform: translateY(100%);
+    visibility: hidden;
+  }
+}
+@keyframes skin-flicker {
+  0%,
+  49% {
+    opacity: 0;
+  }
+  50%,
+  100% {
+    opacity: 1;
+  }
+}
+@keyframes skin-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------ lesson index */
+html[data-skin='commit'] .index-status {
+  gap: 8px 4ch;
+  margin-bottom: 48px;
+  color: var(--fg);
+}
+html[data-skin='commit'] .module {
+  margin-bottom: 48px;
+}
+html[data-skin='commit'] .module-head {
+  display: block;
+  margin-bottom: 8px;
+  padding: 0;
+  border: 0;
+}
+html[data-skin='commit'] .module-head h2 {
+  margin: 0;
+}
+html[data-skin='commit'] .module-head p {
+  color: var(--fg-muted);
+}
+html[data-skin='commit'] .lesson-row {
+  gap: 2ch;
+  padding: 2px 0;
+  border: 0;
+  text-decoration: none;
+}
+html[data-skin='commit'] .lesson-row .title {
+  text-decoration: underline;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 0.24ch;
+}
+html[data-skin='commit'] .lesson-row .summary,
+html[data-skin='commit'] .lesson-row .mins,
+html[data-skin='commit'] .lesson-row .state {
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+html[data-skin='commit'] .lesson-row .state.done {
+  color: var(--accent);
+}
+html[data-skin='commit'] .lesson-row:hover,
+html[data-skin='commit'] .lesson-row:hover :is(.num, .summary, .mins, .state) {
+  color: var(--bg);
+}
+html[data-skin='commit'] .lesson-row:hover .title {
+  text-decoration: none;
+}
+
+/* ------------------------------------------------------------- lesson page */
+html[data-skin='commit'] .lesson-layout {
+  grid-template-columns: clamp(320px, 42%, 76ch) minmax(0, 1fr);
+}
+html[data-skin='commit'] .lesson-panel {
+  padding: 24px 4ch 64px;
+  border-right: 1px dotted var(--fg);
+}
+html[data-skin='commit'] .lesson-crumbs {
+  margin-bottom: 24px;
+}
+html[data-skin='commit'] .lesson-title {
+  margin-bottom: 8px;
+}
+html[data-skin='commit'] .lesson-meta {
+  gap: 2ch;
+  margin-bottom: 32px;
+  color: var(--fg);
+}
+html[data-skin='commit'] .progress {
+  height: 8px;
+  background: var(--bg25);
+}
+html[data-skin='commit'] .progress-bar {
+  background: var(--accent);
+  transition: width 440ms steps(10, jump-end);
+}
+html[data-skin='commit'] .steps-heading {
+  margin: 48px 0 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px dotted var(--fg);
+  color: var(--fg);
+  font-weight: 700;
+}
+html[data-skin='commit'] .lesson-intro > * + * {
+  margin-top: 0;
+}
+html[data-skin='commit'] .lesson-intro :is(pre, table, .callout) {
+  margin-bottom: 24px;
+}
+html[data-skin='commit'] .lesson-intro :is(h2, h3) {
+  margin-top: 32px;
+}
+html[data-skin='commit'] .step {
+  grid-template-columns: 4ch minmax(0, 1fr);
+  gap: 0;
+  padding: 8px 0;
+  border: 0;
+  background: none;
+}
+html[data-skin='commit'] .step-marker {
+  width: fit-content;
+  height: fit-content;
+  padding: 0;
+  color: var(--fg);
+  line-height: 16px;
+}
+html[data-skin='commit'] .step-title {
+  line-height: 16px;
+  font-weight: 700;
+}
+html[data-skin='commit'] .step.todo {
+  opacity: 0.5;
+}
+html[data-skin='commit'] .step.done .step-title {
+  color: var(--fg);
+  font-weight: 400;
+}
+html[data-skin='commit'] .step.current {
+  padding: 16px 0;
+  background: none;
+}
+/* the step you're on: its number is inverted */
+html[data-skin='commit'] .step.current .step-marker,
+html[data-skin='commit'] .quiz-q.current .quiz-num {
+  padding: 0 0.5ch;
+  background: var(--fg);
+  color: var(--bg);
+}
+html[data-skin='commit'] .step.just-done {
+  animation: skin-flicker 100ms 3;
+}
+html[data-skin='commit'] .step .prose {
+  margin-top: 8px;
+}
+html[data-skin='commit'] .step-explain {
+  color: var(--fg-muted);
+}
+html[data-skin='commit'] .step-actions {
+  gap: 2ch;
+  margin-top: 16px;
+}
+html[data-skin='commit'] .coach-tip {
+  margin-top: 16px;
+}
+html[data-skin='commit'] .coach-head strong {
+  color: var(--fg);
+}
+html[data-skin='commit'] .lesson-complete {
+  margin-top: 48px;
+  padding-top: 16px;
+  border-top: 1px dotted var(--fg);
+}
+html[data-skin='commit'] .complete-label {
+  width: fit-content;
+  margin-bottom: 16px;
+  padding: 0 0.5ch;
+  background: var(--accent);
+  color: var(--bg);
+  text-transform: uppercase;
+}
+html[data-skin='commit'] .real-world summary {
+  color: var(--fg);
+}
+html[data-skin='commit'] .lesson-nav {
+  margin-top: 48px;
+  padding-top: 16px;
+  border-top: 1px dotted var(--fg);
+}
+
+/* quiz */
+html[data-skin='commit'] .quiz-intro p {
+  color: var(--fg);
+}
+html[data-skin='commit'] .quiz-buttons {
+  gap: 2ch;
+}
+html[data-skin='commit'] .quiz-q {
+  padding: 16px 0;
+  border: 0;
+  border-bottom: 1px dotted var(--line);
+}
+html[data-skin='commit'] .quiz-q.current {
+  padding-right: 0;
+  background: none;
+}
+html[data-skin='commit'] .quiz-q.upcoming {
+  padding: 4px 0;
+  border: 0;
+  opacity: 0.5;
+}
+html[data-skin='commit'] :is(.quiz-prompt, .quiz-q.upcoming) {
+  grid-template-columns: 4ch minmax(0, 1fr);
+}
+html[data-skin='commit'] .quiz-num {
+  width: fit-content;
+  height: fit-content;
+  padding: 0;
+  color: var(--fg);
+  line-height: 16px;
+}
+html[data-skin='commit'] :is(.quiz-options, .quiz-result, .quiz-waiting, .quiz-q .step-actions, .quiz-q .step-hint) {
+  margin-left: 4ch;
+}
+html[data-skin='commit'] .quiz-waiting {
+  color: var(--fg);
+}
+html[data-skin='commit'] .quiz-waiting span::after {
+  content: ' █';
+  animation: skin-blink 1s steps(1) infinite;
+}
+html[data-skin='commit'] .quiz-options {
+  gap: 8px;
+  margin-top: 16px;
+}
+/* answers work like the buttons of the "Guess the character" game */
+html[data-skin='commit'] .quiz-option {
+  position: relative;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--fg);
+  line-height: 16px;
+}
+html[data-skin='commit'] .quiz-option > :last-child {
+  text-decoration: underline;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 0.24ch;
+}
+html[data-skin='commit'] .quiz-option:hover:not(:disabled) {
+  background: var(--bg50);
+  color: var(--bg);
+}
+html[data-skin='commit'] .quiz-option:hover:not(:disabled) > :last-child {
+  text-decoration: none;
+}
+html[data-skin='commit'] .quiz-option:hover:not(:disabled)::before {
+  content: '→';
+  position: absolute;
+  left: -2ch;
+  color: var(--fg);
+}
+html[data-skin='commit'] .quiz-option:disabled {
+  color: var(--fg);
+  opacity: 0.5;
+}
+html[data-skin='commit'] .quiz-option:disabled > :last-child {
+  text-decoration: none;
+}
+html[data-skin='commit'] .quiz-option.right,
+html[data-skin='commit'] .quiz-option.wrong {
+  opacity: 1;
+}
+html[data-skin='commit'] .quiz-option.right {
+  font-weight: 700;
+}
+html[data-skin='commit'] .quiz-option.right::after,
+html[data-skin='commit'] .quiz-option.wrong::after {
+  content: '✓';
+  position: absolute;
+  top: 0;
+  left: calc(100% + 1ch);
+  color: var(--accent);
+}
+html[data-skin='commit'] .quiz-option.wrong > :last-child {
+  text-decoration: line-through;
+}
+html[data-skin='commit'] .quiz-option.wrong::after {
+  content: '✗';
+  color: var(--danger);
+}
+html[data-skin='commit'] .quiz-letter,
+html[data-skin='commit'] .quiz-option.right .quiz-letter,
+html[data-skin='commit'] .quiz-option.wrong .quiz-letter {
+  color: inherit;
+}
+html[data-skin='commit'] .quiz-result {
+  margin-top: 16px;
+}
+html[data-skin='commit'] .quiz-verdict {
+  margin-bottom: 4px;
+  color: var(--accent);
+  font-weight: 700;
+}
+html[data-skin='commit'] .quiz-result.wrong .quiz-verdict {
+  color: var(--danger);
+}
+html[data-skin='commit'] .quiz-result.revealed .quiz-verdict {
+  color: var(--fg);
+}
+html[data-skin='commit'] .quiz-solution-label {
+  color: var(--fg);
+}
+html[data-skin='commit'] .quiz-score {
+  gap: 2ch;
+  margin-top: 16px;
+  color: var(--fg);
+}
+html[data-skin='commit'] .quiz-score > span {
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  html[data-skin='commit'] .lesson-layout {
+    grid-template-columns: 1fr;
+  }
+  html[data-skin='commit'] .lesson-panel {
+    padding: 16px 2ch 48px;
+    border-right: 0;
+  }
+  html[data-skin='commit'] .lesson-tabs {
+    border-bottom: 1px dotted var(--fg);
+  }
+  html[data-skin='commit'] .lesson-tabs button {
+    border: 0;
+    color: var(--fg);
+    text-transform: capitalize;
+  }
+  html[data-skin='commit'] .lesson-tabs button.active {
+    background: var(--bg25);
+  }
+}
+
+/* ---------------------------------------------------------------- emulator */
+html[data-skin='commit'] .emulator-bar {
+  gap: 4ch;
+  padding: 8px 4ch;
+  border-bottom: 1px dotted var(--fg);
+  color: var(--fg);
+}
+html[data-skin='commit'] .ideas {
+  gap: 2ch;
+}
+@media (max-width: 640px) {
+  html[data-skin='commit'] .emulator-tip {
+    bottom: 64px;
+  }
+}
+
+/* -------------------------------------------------------------- reference */
+html[data-skin='commit'] .search {
+  max-width: 54ch;
+  gap: 1ch;
+  margin-bottom: 32px;
+  padding: 0 1ch;
+  border: 1px solid var(--fg);
+}
+html[data-skin='commit'] .search::before {
+  color: var(--fg);
+}
+html[data-skin='commit'] .search input {
+  padding: 4px 0;
+}
+html[data-skin='commit'] .search input::placeholder {
+  color: var(--fg-faint);
+}
+html[data-skin='commit'] .ref-layout {
+  grid-template-columns: 26ch minmax(0, 1fr);
+  gap: 4ch;
+}
+html[data-skin='commit'] .ref-toc {
+  gap: 4px;
+}
+html[data-skin='commit'] .ref-toc a {
+  justify-content: flex-start;
+  gap: 1ch;
+  width: fit-content;
+}
+html[data-skin='commit'] .ref-toc a .faint {
+  color: inherit;
+}
+html[data-skin='commit'] .ref-group {
+  margin-bottom: 48px;
+}
+html[data-skin='commit'] .ref-group h2 {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px dotted var(--fg);
+  color: var(--fg);
+  font-weight: 700;
+}
+html[data-skin='commit'] .ref-item {
+  border: 0;
+}
+html[data-skin='commit'] .ref-summary {
+  grid-template-columns: 14ch minmax(0, 1fr) auto;
+  gap: 2ch;
+  padding: 2px 0;
+  line-height: 16px;
+}
+html[data-skin='commit'] .ref-name {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 0.24ch;
+}
+html[data-skin='commit'] .ref-desc,
+html[data-skin='commit'] .ref-tag {
+  color: var(--fg-muted);
+}
+html[data-skin='commit'] .ref-summary:hover {
+  background: var(--bg75);
+}
+html[data-skin='commit'] .ref-summary:hover :is(.ref-name, .ref-desc, .ref-tag) {
+  color: var(--bg);
+  text-decoration: none;
+}
+html[data-skin='commit'] .ref-item.open .ref-summary {
+  background: var(--bg25);
+}
+html[data-skin='commit'] .ref-item.open .ref-summary:hover {
+  background: var(--bg75);
+}
+html[data-skin='commit'] .ref-body {
+  padding: 16px 0 32px 2ch;
+}
+html[data-skin='commit'] .ref-note,
+html[data-skin='commit'] .ref-see,
+html[data-skin='commit'] .ref-examples h3,
+html[data-skin='commit'] .ref-options th {
+  color: var(--fg);
+}
+html[data-skin='commit'] .ref-example {
+  gap: 2ch;
+}

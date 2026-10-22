@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:classic": "vite --mode classic --port 5175",
     "build": "tsc -b && vite build",
+    "build:classic": "tsc -b && vite build --mode classic",
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "lint": "oxlint",

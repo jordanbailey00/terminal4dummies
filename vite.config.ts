@@ -52,9 +52,33 @@ function routeMeta(): Plugin {
   };
 }
 
+/**
+ * The site's look, modeled on commitmono.com (src/skins/commit), layered over
+ * the original styles. `--mode classic` (npm run dev:classic, build:classic)
+ * leaves it out and gives the original look.
+ */
+function commitSkin(): Plugin {
+  return {
+    name: 't4d-commit-skin',
+    transformIndexHtml: {
+      // before Vite processes the page, so the script is bundled in builds
+      order: 'pre',
+      handler: (html) => ({
+        // set up front so the first paint already has the skin (light unless
+        // the visitor picked dark: the inline script in index.html sees to that)
+        html: html
+          .replace('<html lang="en">', '<html lang="en" data-skin="commit" data-theme="light">')
+          .replace('<meta name="theme-color" content="#0c0c0c" />', '<meta name="theme-color" content="#aaaaaa" />'),
+        // in <head>, so it runs before /src/main.tsx
+        tags: [{ tag: 'script', attrs: { type: 'module', src: '/src/skins/commit/index.ts' }, injectTo: 'head' }],
+      }),
+    },
+  };
+}
+
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [react(), routeMeta()],
+export default defineConfig(({ mode }) => ({
+  plugins: [react(), routeMeta(), mode !== 'classic' && commitSkin()],
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 900,
@@ -63,4 +87,4 @@ export default defineConfig({
     include: ['src/**/*.test.ts'],
     environment: 'node',
   },
-});
+}));

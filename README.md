@@ -23,6 +23,8 @@ npm test           # unit + interactive terminal tests
 npm run build      # production build into dist/
 ```
 
+The look (modeled on [commitmono.com](https://commitmono.com)) is a layer in `src/skins/commit` over the original styles in `src/styles`. `npm run dev:classic` and `npm run build:classic` give the original look without it.
+
 ## Deploying
 
 Hosted on Vercel as a static Vite app with a single-page-app rewrite (see `vercel.json`). Production: https://terminal4dummies.vercel.app
