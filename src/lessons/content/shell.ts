@@ -114,6 +114,43 @@ The braces in \`\${city}\` mark exactly where the name ends, which matters when 
       check: any(ran('which'), ran('type'), ran('whereis'), ran('command', { args: ['-v'] })),
     },
   ],
+  quiz: [
+    {
+      prompt: 'You already have `city=Paris`. To change it you type `city = Rome`, and the shell answers `city: command not found`. Why?',
+      options: [
+        '`Rome` is text, so it needs quotes around it: `city = "Rome"`',
+        'Variable names must be in capital letters, so it should have been `CITY = Rome`',
+        'The spaces split the line into words, so the shell looked for a command called `city`',
+        "A variable can't be changed once it has been set, so you need to choose a new name",
+      ],
+      answer: 2,
+      explain: 'The shell splits a line into words at the spaces, so it saw a command `city` with the arguments `=` and `Rome`. Write it as one word, with no spaces around the `=`: `city=Rome`.',
+    },
+    {
+      prompt: 'With `city=Paris` set, which command prints *Parisian food*?',
+      options: ['`echo "$cityian food"`', "`echo '${city}ian food'`", '`echo "$city ian food"`', '`echo "${city}ian food"`'],
+      answer: 3,
+      explain:
+        'The braces mark where the name ends, so `${city}ian` becomes *Parisian*. Without them the shell looks for a variable called `cityian`, which is empty, and inside single quotes `${city}` is printed exactly as typed.',
+    },
+    {
+      kind: 'command',
+      prompt: "You made a variable with `city=Paris`, but `printenv city` prints nothing: the programs you start can't see it. Type the command that adds `city` to the environment, so they can.",
+      accept: ['export city', /^export city=(Paris|"Paris"|'Paris')$/, 'declare -x city', 'typeset -x city'],
+      explain: '`export city` adds the variable to the environment, so every program the shell starts from now on gets a copy of it. There is no `$`: you are naming the variable, not using its value.',
+    },
+    {
+      prompt: 'Your `PATH` is `/usr/local/bin:/usr/bin:/bin`, and there is a program called `backup` in both `/usr/local/bin` and `/usr/bin`. Which one runs when you type `backup`?',
+      options: [
+        '`/usr/local/bin/backup`, because that folder comes first in the list',
+        '`/usr/bin/backup`, because `/usr/bin` is where most programs live',
+        'Both of them, one after the other',
+        'Whichever of the two was installed most recently',
+      ],
+      answer: 0,
+      explain: 'The shell searches the folders in `PATH` from left to right and runs the first match it finds. `which backup` would show you which one that is: `/usr/local/bin/backup`.',
+    },
+  ],
   recap: `
 - \`name=value\` creates or changes a variable (no spaces!); \`$name\` or \`\${name}\` uses it.
 - Double quotes allow \`$\` substitution; single quotes keep everything exactly as typed.
@@ -238,6 +275,37 @@ You rarely see this number, but it's always kept in the special variable \`$?\`.
       explain:
         'Run the second line again and nothing happens: grep finds cheese now, so the `echo` is skipped. *Only do it if it has not been done yet* is a common trick in setup scripts. Check the list with `$ cat ~/shopping.txt`.',
       check: all(fileContains('shopping.txt', /cheese/i), everRan('grep', { flags: 'q' })),
+    },
+  ],
+  quiz: [
+    {
+      prompt: 'What do the two `echo` commands print?\n\n```\nfalse\necho $?\necho $?\n```',
+      options: ['`1`, then `1`', '`1`, then `0`', '`0`, then `0`', '`0`, then `1`'],
+      answer: 1,
+      explain: '`false` always fails with status 1, so the first `echo $?` prints `1`. That `echo` succeeded, though, so the second one prints `0`: `$?` only ever holds the status of the most recent command.',
+    },
+    {
+      prompt: 'You want to delete the photos in the folder `old-photos`, but only if you really got into that folder. Which line is safe?',
+      options: ['`cd old-photos; rm *.jpg`', '`cd old-photos || rm *.jpg`', '`cd old-photos && rm *.jpg`'],
+      answer: 2,
+      explain: 'With `&&`, `rm` runs only if `cd` succeeded. With `;` it runs no matter what, and with `||` only if `cd` **failed**, so both of those can delete the `.jpg` files in whatever folder you happen to be in.',
+    },
+    {
+      prompt: 'Which line adds `cheese` to `shopping.txt` only if it is not on the list yet?',
+      options: [
+        '`grep -q cheese shopping.txt || echo cheese >> shopping.txt`',
+        '`grep -q cheese shopping.txt && echo cheese >> shopping.txt`',
+        '`grep -q cheese shopping.txt; echo cheese >> shopping.txt`',
+        '`grep -q cheese shopping.txt | echo cheese >> shopping.txt`',
+      ],
+      answer: 0,
+      explain: "`grep -q` reports 0 when it finds the word and 1 when it doesn't, and `||` runs the `echo` only after a failure. `&&` would add cheese only when it is already there, while `;` and a single `|` (a pipe) run both commands every time.",
+    },
+    {
+      kind: 'command',
+      prompt: 'Type one line that creates a folder called `build` and then moves into it, but only if the folder was created successfully.',
+      accept: ['mkdir build && cd build', /^mkdir (\.\/)?build\/? ?&& ?cd (\.\/)?build\/?$/],
+      explain: '`&&` runs `cd build` only if `mkdir build` succeeded. If the folder already exists, `mkdir` fails and you stay where you are.',
     },
   ],
   recap: `
@@ -394,6 +462,38 @@ Aliases you type only last until the shell exits. To keep them, you write them i
       explain:
         "To add color, wrap a color code in `\\[\\e[...m\\]`. For example `$ PS1='\\[\\e[1;35m\\]\\u\\[\\e[0m\\]:\\W\\$ '` shows your name in bold magenta. The number picks the color (32 green, 33 yellow, 34 blue, 35 magenta, 36 cyan), `1;` makes it bold and `0` switches back to normal. `\\[` and `\\]` tell bash that the codes take up no space on screen. Changed your mind? `source ~/.bashrc` brings back the original. To keep a prompt you like, add its `PS1=` line to the end of `~/.bashrc` with nano.",
       check: all(lineMatches(/\bPS1=/), (c) => !!c.ev && c.ev.status === 0 && c.ev.execs.some((e) => e.argv.some((a) => a.startsWith('PS1=') && a.slice(4) !== DEFAULT_PS1))),
+    },
+  ],
+  quiz: [
+    {
+      prompt: 'Which line creates an alias called `now` that runs `date +%H:%M`?',
+      options: ["`alias now = 'date +%H:%M'`", "`now='date +%H:%M'`", '`alias now=date +%H:%M`', "`alias now='date +%H:%M'`"],
+      answer: 3,
+      explain:
+        'As with variables, there are no spaces around the `=`, and the quotes keep `date +%H:%M` together as one piece of text. Without them `now` would stand for just `date`, and without the word `alias` you would create an ordinary variable instead.',
+    },
+    {
+      prompt: 'You want your `now` alias to exist in every new terminal you open. Which command does that?',
+      options: [
+        '`echo "alias now=\'date +%H:%M\'" > ~/.bashrc`',
+        '`echo "alias now=\'date +%H:%M\'" >> ~/.bashrc`',
+        "`alias now='date +%H:%M' >> ~/.bashrc`",
+        '`export now`',
+      ],
+      answer: 1,
+      explain: 'Every new terminal shell runs the lines in `~/.bashrc`, and `>>` adds yours to the end. A single `>` would replace the whole file with that one line, wiping out all your other settings.',
+    },
+    {
+      kind: 'command',
+      prompt: "You just added an alias to the end of `~/.bashrc`. Type the command that makes the shell you're in read the file again, so the alias works right away.",
+      accept: ['source ~/.bashrc', '. ~/.bashrc', /^(source|\.) (~|\$HOME|\$\{HOME\}|\/home\/learner)\/\.bashrc$/, /^(source|\.) "(\$HOME|\$\{HOME\})\/\.bashrc"$/],
+      explain: '`source` runs the commands in a file inside the **current** shell, so the new alias sticks. A single dot does the same job: `. ~/.bashrc`.',
+    },
+    {
+      prompt: "You are the user `learner`, in the folder `/home/learner/Documents`, and you set `PS1='\\u:\\W\\$ '`. What does your prompt look like now?",
+      options: ['`learner:Documents$`', '`learner:~/Documents$`', '`learner@sandbox:Documents$`', '`\\u:\\W\\$`'],
+      answer: 0,
+      explain: '`\\u` shows your user name, `\\W` only the last part of the current folder (`\\w` would show `~/Documents`), and `\\$` a `$` sign, because you are not root.',
     },
   ],
   recap: `

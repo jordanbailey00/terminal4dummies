@@ -86,6 +86,42 @@ To stop a process you send it a **signal**:
       check: ran('top'),
     },
   ],
+  quiz: [
+    {
+      prompt: 'You start `sleep 500 &`, and the shell prints `[1] 4721`. What do the two numbers mean?',
+      options: [
+        '`1` is the process ID (PID), and `4721` is the job number',
+        '`1` is the exit status, and `4721` is the process ID (PID)',
+        '`1` is how many programs are running, and `4721` is the process ID (PID)',
+        '`1` is the job number, and `4721` is the process ID (PID)',
+      ],
+      answer: 3,
+      explain: 'The number in brackets is the job number this shell gave it, and the other is the PID the system gave the process. So `kill %1` and `kill 4721` would stop the same `sleep`.',
+    },
+    {
+      kind: 'command',
+      prompt: 'Type the command that lists **every** process on the computer, with its owner and its CPU and memory use.',
+      accept: ['ps aux', /^ps (aux|axu|uax|uxa|xau|xua)$/],
+      explain: 'On its own, `ps` only shows the processes in this terminal. `ps aux` (written without a dash) shows every process, with columns for its owner (`USER`) and its CPU and memory use (`%CPU`, `%MEM`).',
+    },
+    {
+      prompt: 'Which statement about `kill -9 4721` is true?',
+      options: [
+        'It politely asks process 4721 to exit, so the program can save its work first',
+        "It forces process 4721 to stop at once; the program can't catch or ignore it",
+        'It pauses process 4721, so that you can let it continue later',
+        'It only works when you are root, because it is too dangerous for other users',
+      ],
+      answer: 1,
+      explain: '`-9` sends SIGKILL, which the system carries out itself, so the program gets no say and no chance to clean up. That is why it is the last resort; a plain `kill 4721` sends the polite SIGTERM.',
+    },
+    {
+      prompt: 'Which command prints the PIDs of the running processes called `sleep`?',
+      options: ['`which sleep`', '`ps sleep`', '`pgrep -l sleep`'],
+      answer: 2,
+      explain: '`pgrep` searches the running processes by name and prints their PIDs (`-l` adds the names). `which sleep` only shows where the program file is stored, and `ps` does not accept a program name on its own.',
+    },
+  ],
   recap: `
 - A **process** is a running program; each has a **PID**.
 - \`ps\` lists your processes, \`ps aux\` lists them all, \`pgrep NAME\` finds PIDs, \`top\` shows them live.
@@ -173,6 +209,38 @@ Your shell can juggle several **jobs** at once. A job is a command you started f
       solution: ['sleep 600 &', 'sleep 700 &', 'jobs', 'kill %1'],
       explain: '`%1` and `%2` refer to jobs by number. When a background job ends, the shell tells you before the next prompt.',
       check: all(ran('kill'), (c) => c.commands.filter((e) => /\bsleep\b.*&\s*$/.test(e.line)).length >= 2),
+    },
+  ],
+  quiz: [
+    {
+      prompt: 'What is the difference between <kbd>Ctrl</kbd>+<kbd>C</kbd> and <kbd>Ctrl</kbd>+<kbd>Z</kbd>?',
+      options: [
+        '<kbd>Ctrl</kbd>+<kbd>C</kbd> copies the selected text, and <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes the last command',
+        '<kbd>Ctrl</kbd>+<kbd>C</kbd> stops the foreground program for good, while <kbd>Ctrl</kbd>+<kbd>Z</kbd> only pauses it',
+        'There is no difference: both stop the program for good',
+        '<kbd>Ctrl</kbd>+<kbd>C</kbd> pauses the program, while <kbd>Ctrl</kbd>+<kbd>Z</kbd> stops it for good',
+      ],
+      answer: 1,
+      explain: '<kbd>Ctrl</kbd>+<kbd>C</kbd> ends the foreground program for good. After <kbd>Ctrl</kbd>+<kbd>Z</kbd> it is only *stopped*: it still exists, waiting for you to resume it with `fg` or `bg`.',
+    },
+    {
+      kind: 'command',
+      prompt:
+        'You were running `sleep 400` and pressed <kbd>Ctrl</kbd>+<kbd>Z</kbd> by accident. The shell printed:\n\n```\n[1]+  Stopped                 sleep 400\n```\n\nType the command that brings it back to the foreground.',
+      accept: ['fg', 'fg %1', 'fg 1', 'fg %+', 'fg %%', 'fg %', 'fg %sleep', '%1', '%+', '%%', '%', '%sleep'],
+      explain: '`fg` (short for *foreground*) resumes the stopped job and gives it the keyboard again. When you have several jobs, add the job number, as in `fg %2`.',
+    },
+    {
+      prompt: 'You paused a long job with <kbd>Ctrl</kbd>+<kbd>Z</kbd>. Now you want it to continue running while you keep typing other commands. What do you type?',
+      options: ['`fg`', '`jobs`', '`&`', '`bg`'],
+      answer: 3,
+      explain: '`bg` resumes a stopped job in the **background**, so the prompt stays free for you. `fg` would resume it too, but in the foreground, where it keeps the keyboard until it finishes.',
+    },
+    {
+      prompt: '`jobs` shows:\n\n```\n[1]-  Running                 sleep 600 &\n[2]+  Running                 sleep 700 &\n```\n\nWhich command ends `sleep 700`?',
+      options: ['`kill 2`', '`kill %700`', '`kill %2`', '`kill sleep`'],
+      answer: 2,
+      explain: '`%2` means *job number 2*. Without the `%`, `kill 2` would mean the process whose **PID** is 2, which is a different process altogether.',
     },
   ],
   recap: `

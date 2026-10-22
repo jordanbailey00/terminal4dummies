@@ -86,6 +86,32 @@ ls /usr/bin  |  wc -l
       check: pipeline('ls', 'grep'),
     },
   ],
+  quiz: [
+    {
+      prompt: 'Why is `red` still in the list twice?\n\n```\n$ cat colors.txt\nred\nblue\nred\n$ uniq colors.txt\nred\nblue\nred\n```',
+      options: ['`uniq` only works on text that comes through a pipe', '`uniq` only removes repeated lines that are next to each other', '`uniq` needs `-c` before it removes anything'],
+      answer: 1,
+      explain: '`uniq` compares each line only with the one just before it, which is why it almost always comes after `sort`: `sort colors.txt | uniq` prints `blue` and `red` once each.',
+    },
+    {
+      kind: 'command',
+      prompt: 'Type a command line that counts how many names `ls /etc` prints, by piping its output into a command that counts lines.',
+      accept: ['ls /etc | wc -l', /^ls( -1)? \/etc\/? ?\| ?wc (-l|--lines)$/],
+      explain: "The pipe hands everything `ls` prints to `wc -l`, which counts the lines it receives. Going into a pipe, `ls` prints one name per line, so that's the number of names.",
+    },
+    {
+      prompt: 'What does this pipeline print?\n\n```\nsort names.txt | uniq -c | sort -rn | head -1\n```',
+      options: ['The name that comes first in alphabetical order', 'How many different names there are', 'The least common name, with its count', 'The most common name, with how many times it appears'],
+      answer: 3,
+      explain: "`uniq -c` puts a count in front of each name, `sort -rn` puts the biggest count first, and `head -1` keeps only that line. For this lesson's list, that's Maya, with a count of 4.",
+    },
+    {
+      prompt: 'In a command line like `A | B`, what does the `|` do?',
+      options: ["It sends everything A prints into B, as B's input", 'It runs B only if A worked', "It saves A's output in a file called B", "It sends B's output into A"],
+      answer: 0,
+      explain: "The pipe connects A's standard output to B's standard input, so the text flows from left to right. Saving output into a file is a job for `>`.",
+    },
+  ],
   recap: `
 - \`A | B\` sends the output of command A into command B.
 - Small tools combine into powerful pipelines: \`sort | uniq -c | sort -rn | head\` ranks anything.
@@ -211,6 +237,38 @@ The most useful options:
       check: any(ran('grep', { flags: 'r' }), ran('grep', { flags: 'R' })),
     },
   ],
+  quiz: [
+    {
+      kind: 'command',
+      prompt: 'Type a command that prints every line of `app.log` containing *error*, whether it is written `error`, `Error` or `ERROR`.',
+      accept: [
+        'grep -i error app.log',
+        /^grep (-i|--ignore-case|-i -e|-ie) (["']?)[eE][rR][rR][oO][rR]\2( ?< ?| )(\.\/)?app\.log$/,
+        /^grep (["']?)[eE][rR][rR][oO][rR]\1 (-i|--ignore-case) (\.\/)?app\.log$/,
+        /^grep (["']?)[eE][rR][rR][oO][rR]\1 (\.\/)?app\.log (-i|--ignore-case)$/,
+        /^cat (\.\/)?app\.log ?\| ?grep (-i|--ignore-case) (["']?)[eE][rR][rR][oO][rR]\3$/,
+      ],
+      explain: '`-i` makes grep ignore upper and lower case, so one search finds all three spellings. Without it, `grep error app.log` would find only the lowercase one.',
+    },
+    {
+      prompt: 'What does `grep -v INFO server.log` show?',
+      options: ['Only the lines that contain INFO', 'Every line that does **not** contain INFO', 'How many lines contain INFO', "grep's version number"],
+      answer: 1,
+      explain: '`-v` inverts the search: it hides the matching lines and shows all the others, which is handy for filtering out noise. Counting is `-c`, and the version is the capital `-V`.',
+    },
+    {
+      prompt: 'Why did this go wrong?\n\n```\n$ grep -E WARN|ERROR server.log\nERROR: command not found\n```',
+      options: ['There is no line with ERROR in `server.log`', '`-E` patterns may only contain one word', 'The shell took `|` as a pipe and ran `ERROR` as a command', 'grep is case-sensitive and needed `-i`'],
+      answer: 2,
+      explain: 'The shell handles `|` before grep ever sees it, so it split the line into `grep -E WARN` and a command called `ERROR`. Quote the pattern, as in `grep -E "WARN|ERROR" server.log`, and the `|` reaches grep, where it means *or*. (The broken version leaves grep waiting for keyboard input: press <kbd>Ctrl</kbd>+<kbd>C</kbd>.)',
+    },
+    {
+      prompt: 'Why did this fail?\n\n```\n$ grep TODO notes\ngrep: notes: Is a directory\n```',
+      options: ['There are no TODOs anywhere in `notes`', 'TODO has to be written in quotes', 'grep can only search one file at a time', 'grep searches files, not folders, unless you add `-r`'],
+      answer: 3,
+      explain: '`notes` is a folder, and grep reads the text of files. `grep -r TODO notes` walks through every file below the folder, subfolders included, and shows which file each match came from.',
+    },
+  ],
   recap: `
 - \`grep PATTERN FILE\` prints matching lines.
 - \`-i\` ignores case, \`-n\` numbers lines, \`-c\` counts, \`-v\` inverts, \`-r\` searches folders.
@@ -325,6 +383,37 @@ find  .       -name "*.jpg"      -print   (the default)
       check: all(missing('~/archive/drafts/cache.tmp'), missing('~/archive/drafts/~letter.tmp')),
     },
   ],
+  quiz: [
+    {
+      prompt: 'There are three photos below this folder, but only two were found:\n\n```\n$ find . -name "*.jpg"\n./2024/holiday/beach.jpg\n./2025/party.jpg\n```\n\nWhy is `2024/holiday/sunset.JPG` missing?',
+      options: ['`find` only looks one folder deep unless you ask for more', '`-name` is case-sensitive, so `*.jpg` does not match `.JPG`', 'The quotes around `*.jpg` stopped the `*` from working'],
+      answer: 1,
+      explain: '`-name` matches upper and lower case exactly. `find . -iname "*.jpg"` ignores case and finds all three. The quotes are right: they stop the shell from expanding `*.jpg` before find runs.',
+    },
+    {
+      kind: 'command',
+      prompt: 'Type a command that finds every file whose name ends in `.txt`, in the current folder and in all the folders below it.',
+      accept: [
+        'find . -name "*.txt"',
+        "find . -name '*.txt'",
+        /^find( \.\/?)?( -type f)? -name (["'])\*\.txt\3( -type f)?( -print)?$/,
+        /^find( \.\/?)?( -type f)? -name \\\*\.txt( -type f)?( -print)?$/,
+      ],
+      explain: '`find .` searches here and everything below, and `-name` keeps the names that match the pattern (`-iname` would also match `.TXT`). Keep the quotes: without them, the shell expands `*.txt` itself first, using the names in the current folder.',
+    },
+    {
+      prompt: 'Which command finds files that were modified in the last 7 days?',
+      options: ['`find . -mtime +7`', '`find . -mtime 7`', '`find . -mtime -7`', '`find . -size -7`'],
+      answer: 2,
+      explain: 'For `-mtime`, a minus means *less than* that many days ago, so `-7` finds recent changes, while `+7` finds files older than that. `-size` uses the same `+` and `-` idea for sizes.',
+    },
+    {
+      prompt: 'You want to delete every `.tmp` file below this folder with `find . -name "*.tmp" -delete`. What is the safe way to do it?',
+      options: ['Run `find . -name "*.tmp"` first and check the list, then add `-delete`', 'Just run it: `-delete` asks before removing each file', 'Just run it: deleted files go to the trash, so you can get them back'],
+      answer: 0,
+      explain: "`-delete` removes every match at once, without asking, and there's no trash to get them back from. Running the same search without `-delete` first shows exactly what would go.",
+    },
+  ],
   recap: `
 - \`find WHERE TESTS\` searches a whole folder tree.
 - \`-name\`/\`-iname\` match names (quote the pattern!), \`-type f\`/\`-type d\` pick files or folders, \`-size\` and \`-mtime\` filter by size and age.
@@ -437,6 +526,37 @@ You'll work with \`sales.csv\`, a small sales spreadsheet.
       solution: ["sed 's/,/ | /g' sales.csv"],
       explain: "`sed` never changes the file itself unless you add `-i`; it prints the edited result. Save it with `> sales.txt` if you like it.",
       check: ran('sed'),
+    },
+  ],
+  quiz: [
+    {
+      kind: 'command',
+      prompt: 'Type a command that prints only the 3rd column (the product) of the comma-separated file `sales.csv`.',
+      accept: [
+        'cut -d, -f3 sales.csv',
+        /^cut ((-d ?|--delimiter[= ])(,|','|",") (-f ?|--fields[= ])3|(-f ?|--fields[= ])3 (-d ?|--delimiter[= ])(,|','|",")) (\.\/)?sales\.csv$/,
+        /^cat (\.\/)?sales\.csv ?\| ?cut ((-d ?|--delimiter[= ])(,|','|",") (-f ?|--fields[= ])3|(-f ?|--fields[= ])3 (-d ?|--delimiter[= ])(,|','|","))$/,
+        /^awk -F ?(,|','|",") '\{ ?print \$3 ?\}' (\.\/)?sales\.csv$/,
+      ],
+      explain: '`-d,` tells cut that commas separate the columns, and `-f3` picks the third field. Without `-d,`, cut would look for tabs between the columns instead.',
+    },
+    {
+      prompt: 'Counting orders per region gives an extra line:\n\n```\n$ cut -d, -f2 sales.csv | sort | uniq -c\n      3 East\n      4 North\n      1 region\n      4 South\n      3 West\n```\n\nWhere does `1 region` come from?',
+      options: ['One of the orders has *region* as its region', '`uniq -c` always adds a line naming the column', "It's the header row, which `tail -n +2 sales.csv` would skip"],
+      answer: 2,
+      explain: 'Line 1 of the file names the columns, so its 2nd field is the word *region*. `tail -n +2` starts at line 2 and drops the header: `tail -n +2 sales.csv | cut -d, -f2 | sort | uniq -c`.',
+    },
+    {
+      prompt: "What does this print?\n\n```\necho \"red,green,blue\" | sed 's/,/ and /'\n```",
+      options: ['`red and green,blue`', '`red and green and blue`', '`red,green,blue`'],
+      answer: 0,
+      explain: "Without a `g` at the end, `s/old/new/` replaces only the **first** match on each line. `sed 's/,/ and /g'` would replace every comma.",
+    },
+    {
+      prompt: 'Plain `sort` puts these numbers in a strange order:\n\n```\n$ sort sizes.txt\n100\n25\n30\n9\n```\n\nWhich command sorts them by value, from smallest to largest?',
+      options: ['`sort -r sizes.txt`', '`sort -n sizes.txt`', '`sort -rn sizes.txt`'],
+      answer: 1,
+      explain: 'Plain `sort` compares text character by character, and `1` comes before `2`, `3` and `9`. `-n` compares numbers by their value; adding `-r` would reverse the order, biggest first.',
     },
   ],
   recap: `

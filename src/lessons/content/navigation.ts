@@ -72,6 +72,32 @@ At every moment the shell is "standing" in one folder, called the **current work
       check: ran('ls', { args: [/(^|\/)Documents\/recipes\/?$/] }),
     },
   ],
+  quiz: [
+    {
+      prompt: 'What does `pwd` show?',
+      options: ['Your password', 'The files in the current folder', 'The folder you are in right now', 'Your user name'],
+      answer: 2,
+      explain: "`pwd` stands for *print working directory*: it prints the full path of the folder you're in, such as `/home/learner`. Files are listed by `ls`, and your user name comes from `whoami`.",
+    },
+    {
+      prompt: 'What is the very top of the Linux folder tree called, and how is it written?',
+      options: ['The root, written `/`', 'The home folder, written `~`', 'The C: drive, written `C:\\`', 'The root, written `\\`'],
+      answer: 0,
+      explain: 'Everything on Linux lives somewhere inside the **root**, `/`. There are no drive letters like `C:`, and paths use forward slashes, not backslashes.',
+    },
+    {
+      prompt: 'The prompt shows `learner@sandbox:~$`. What is the full path of the folder you are in?',
+      options: ['`/`', '`/home`', '`/learner`', '`/home/learner`'],
+      answer: 3,
+      explain: '`~` is short for your home folder, `/home/learner`: the `learner` folder inside `home`, which is inside the root. `/home` holds one such folder for each user.',
+    },
+    {
+      kind: 'command',
+      prompt: "You're in your home folder. Without moving, list what's inside the `recipes` folder, which is inside `Documents`.",
+      accept: ['ls Documents/recipes', /^ls (?:-[lahtrS1]+ )?(?:\.\/|~\/|\/home\/learner\/)?Documents\/recipes\/?$/],
+      explain: '`Documents/recipes` means *the recipes folder inside the Documents folder*. Give `ls` a path, and it shows you what is inside without you going there.',
+    },
+  ],
   recap: `
 - The filesystem is a tree that starts at the **root**, \`/\`.
 - Your **home folder** is \`/home/learner\`, written \`~\` for short.
@@ -165,6 +191,32 @@ A few special names save typing:
       check: all(ran('cd', { args: ['-'] }), cwdIs('/var/log')),
     },
   ],
+  quiz: [
+    {
+      prompt: 'Which command takes you up one level, to the parent folder?',
+      options: ['`cd..`', '`cd -`', '`cd /`', '`cd ..`'],
+      answer: 3,
+      explain: "`..` means the parent folder, and it needs a space after `cd`: `cd..` is a command that doesn't exist. `cd -` goes back to the *previous* folder, and `cd /` jumps to the root.",
+    },
+    {
+      prompt: 'You are in `/home/learner/Documents/recipes`. Where does `cd ../..` take you?',
+      options: ['`/home/learner/Documents`', '`/home/learner`', '`/home`', '`/`'],
+      answer: 1,
+      explain: 'Each `..` climbs one level: the first takes you up to `Documents`, and the second up to `/home/learner`, your home folder.',
+    },
+    {
+      prompt: 'Which of these is an **absolute** path?',
+      options: ['`Documents/recipes`', '`../Pictures`', '`/var/log`', '`recipes`'],
+      answer: 2,
+      explain: "An absolute path starts at the root, so it begins with `/` and works from anywhere. The others are **relative**: they start from the folder you're in now.",
+    },
+    {
+      kind: 'command',
+      prompt: "You've been exploring the system folders. Type a command that takes you straight back to your home folder.",
+      accept: ['cd', 'cd ~', 'cd ~/', 'cd /home/learner', 'cd /home/learner/', 'cd ~learner', 'cd $HOME', 'cd "$HOME"'],
+      explain: '`cd` on its own always takes you home, and so does `cd ~`. The absolute path works too: `cd /home/learner`.',
+    },
+  ],
   recap: `
 - \`cd FOLDER\` moves into a folder; the prompt shows where you are.
 - **Relative** paths start from the current folder; **absolute** paths start with \`/\`.
@@ -251,7 +303,7 @@ Don't worry about permissions yet. They get a whole lesson later.
       title: 'Human-friendly sizes',
       instruction: "Sizes in bytes are hard to read. `-h` (*human-readable*) adds K, M and G:\n\n`$ ls -lh`",
       solution: ['ls -lh'],
-      explain: '`seed-catalog.txt` is about 7.8K: roughly 7.8 kilobytes. `-h` only changes how sizes are shown.',
+      explain: '`seed-catalog.txt` is about 7.7K: roughly 7.7 kilobytes. `-h` only changes how sizes are shown.',
       check: ran('ls', { flags: 'lh' }),
     },
     {
@@ -261,6 +313,33 @@ Don't worry about permissions yet. They get a whole lesson later.
       solution: ['ls -lt'],
       explain: 'Notice that the oldest file shows a **year** instead of a time. `ls` does that for anything older than six months. Add `-r` to reverse any sort order (`ls -ltr` puts the newest at the bottom).',
       check: ran('ls', { flags: 'lt' }),
+    },
+  ],
+  quiz: [
+    {
+      prompt:
+        "This folder also contains a file called `.hidden-treasure.txt`, but `ls` doesn't show it. Why?\n\n```\nlearner@sandbox:~/garden$ ls\nroses.txt  seed-catalog.txt  tomatoes.txt  tools  watering-schedule.txt\n```",
+      options: ["Its name starts with a dot, so it's hidden; `ls -a` shows it", "It's empty, and `ls` skips empty files", 'It belongs to another user'],
+      answer: 0,
+      explain: 'Names that start with a dot are **hidden** from a plain `ls`, which keeps settings files out of the way. `ls -a` shows everything, hidden files included.',
+    },
+    {
+      prompt: 'In this line from `ls -l`, what does `7800` tell you?\n\n```\n-rw-rw-r-- 1 learner learner 7800 Apr  4  2026 seed-catalog.txt\n```',
+      options: ['The file has 7800 lines', 'The file is 7800 kilobytes', 'The file is 7800 bytes'],
+      answer: 2,
+      explain: 'The number just before the date is the size in **bytes**. `ls -lh` would show the same size as `7.7K`.',
+    },
+    {
+      prompt: 'Which command lists the files with the **largest** first?',
+      options: ['`ls -lh`', '`ls -lt`', '`ls -ls`', '`ls -lS`'],
+      answer: 3,
+      explain: "`-S` (a capital S) sorts by size, largest first. `-h` only changes how sizes are *shown*, `-t` sorts by time, and lowercase `-s` is a different option that doesn't sort.",
+    },
+    {
+      kind: 'command',
+      prompt: 'Type a command that shows a long listing with the **oldest** files first and the newest at the bottom.',
+      accept: ['ls -ltr', /^ls(?=.* -[a-zA-Z]*l)(?=.* -[a-zA-Z]*t)(?=.*(?: -[a-zA-Z]*r| --reverse(?: |$)))(?: (?:-[ltrhaA]+|--reverse))+$/],
+      explain: '`-t` sorts by time, newest first, and `-r` reverses any sort order. Add `-l` for the long listing and you get `ls -ltr` (the letters can go in any order).',
     },
   ],
   recap: `

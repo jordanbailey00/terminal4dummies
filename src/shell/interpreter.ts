@@ -178,7 +178,8 @@ export class Shell {
       value = String(evaluateArithmetic(value, this.arithEnv()));
     }
     this.state.set(name, value);
-    if (name === 'PWD' || name === 'OLDPWD') return;
+    // like bash, a new PATH means remembered command locations are stale
+    if (name === 'PATH') this.state.hash.clear();
   }
 
   arithEnv(): ArithEnv {

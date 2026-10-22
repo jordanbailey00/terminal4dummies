@@ -79,6 +79,54 @@ Everything you practised here works on real computers. This last lesson helps yo
       check: (c) => !!c.ev && /^\s*exit\b/.test(c.ev.line),
     },
   ],
+  quiz: [
+    {
+      prompt: 'Which of these is true on a Mac?',
+      options: [
+        'You install software with `sudo apt install NAME`',
+        '`uname` prints `Linux`, just like on Ubuntu',
+        'Home folders live in `/home`, as on Linux',
+        'The default shell is zsh, and its settings go in `~/.zshrc`',
+      ],
+      answer: 3,
+      explain:
+        'Macs use zsh, so your aliases and settings go in `~/.zshrc` instead of `~/.bashrc`. There is no `apt` (install Homebrew and use `brew install NAME`), home folders are in `/Users`, and `uname` says `Darwin`.',
+    },
+    {
+      prompt: 'What is the recommended way to get the kind of terminal you used in this course on a Windows PC?',
+      options: [
+        'Install WSL with `wsl --install`, which gives you a real Ubuntu with bash',
+        'Use PowerShell, which understands exactly the same commands as bash',
+        'Install Homebrew from brew.sh, then run `brew install bash`',
+      ],
+      answer: 0,
+      explain:
+        'WSL runs a real Ubuntu inside Windows, with bash, apt and the commands you learned here. PowerShell is a different language (even though it has a few aliases, such as `ls`), and Homebrew is how you install software on a Mac.',
+    },
+    {
+      kind: 'command',
+      prompt: 'Type the command that shows which Linux distribution, and which version of it, a computer is running.',
+      accept: [
+        'cat /etc/os-release',
+        /^(cat|less|more|head) \/(etc|usr\/lib)\/os-release$/,
+        /^(cat|less|more|head) \/etc\/lsb-release$/,
+        /^cat \/etc\/\*-?release$/,
+        'lsb_release -a',
+        'hostnamectl',
+      ],
+      explain: '`/etc/os-release` is a small text file in which Linux describes the installed system, including the name and version of the distribution. You will often need that when following installation instructions.',
+    },
+    {
+      prompt: 'On your own computer, you are about to run `rm *.log`. Which habit protects you from deleting the wrong files?',
+      options: [
+        'Put `sudo` in front, so that it cannot fail halfway through',
+        'Run `ls *.log` first, to see exactly which files the wildcard matches',
+        'Run it from your home folder, where nothing important is kept',
+      ],
+      answer: 1,
+      explain: 'The same wildcard matches the same files, so `ls *.log` shows exactly what `rm *.log` would delete, and `rm` has no undo. `sudo` only makes a mistake bigger: use it only when a command really needs it.',
+    },
+  ],
   recap: `
 You know how to move around, manage files, read and edit them, chain commands, search, use permissions and sudo, install software, manage processes, write scripts, and work with archives and remote computers.
 

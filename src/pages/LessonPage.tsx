@@ -1,6 +1,7 @@
 import type { Terminal } from '@xterm/xterm';
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Markdown } from '../components/Markdown';
+import { Quiz } from '../components/Quiz';
 import { usePageTitle } from '../components/usePageTitle';
 import { lessonById, moduleOf, neighbours, LESSONS } from '../lessons';
 import { coach, type Tip } from '../lessons/coach';
@@ -215,6 +216,13 @@ function LessonView({ lesson }: { lesson: Lesson }) {
                 <Markdown source={lesson.realWorld} />
               </details>
             )}
+          </section>
+        )}
+
+        {lesson.quiz && lesson.quiz.length > 0 && <Quiz lessonId={lesson.id} questions={lesson.quiz} />}
+
+        {done && (
+          <div className="lesson-next">
             {next ? (
               <Link to={`/learn/${next.id}`} className="btn btn-accent">
                 next: {next.title} →
@@ -224,7 +232,7 @@ function LessonView({ lesson }: { lesson: Lesson }) {
                 all lessons
               </Link>
             )}
-          </section>
+          </div>
         )}
 
         <nav className="lesson-nav" aria-label="Lesson navigation">

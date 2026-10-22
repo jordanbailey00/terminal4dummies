@@ -73,6 +73,37 @@ learner@sandbox:~$
       check: any(ran('clear'), keyUsed('clear-screen')),
     },
   ],
+  quiz: [
+    {
+      prompt: 'In this prompt, which part tells you which folder you are in?\n\n```\nlearner@sandbox:~$\n```',
+      options: ['`learner`', '`sandbox`', '`~`', '`$`'],
+      answer: 2,
+      explain: '`~` is short for your **home folder**, and this part of the prompt shows where you are. `learner` is your user name, `sandbox` is the computer, and `$` means the shell is ready.',
+    },
+    {
+      prompt: 'What does this command print?\n\n```\necho Good morning\n```',
+      options: ['`Good morning`', '`echo Good morning`', '`Good`', '`Good: command not found`'],
+      answer: 0,
+      explain: "`echo` prints back everything you type after it. The word `echo` is the command itself, so it isn't printed, and the words after it need no quotes.",
+    },
+    {
+      prompt:
+        "Why did this happen?\n\n```\nlearner@sandbox:~$ Whoami\nCommand 'Whoami' not found, did you mean:\n  command 'whoami' from deb coreutils (9.4-3ubuntu6)\nTry: sudo apt install <deb name>\n```",
+      options: [
+        "`whoami` isn't installed yet, so you have to install it with `sudo apt install`",
+        "You aren't logged in, so the computer doesn't know who you are",
+        'Commands are case-sensitive: the command is `whoami`, all in lowercase',
+      ],
+      answer: 2,
+      explain: 'Commands are **case-sensitive**, so `Whoami` and `whoami` are different names, and only the lowercase one exists. The message is just suggesting that similar name; there is nothing to install.',
+    },
+    {
+      kind: 'command',
+      prompt: 'Type the command that shows which user you are logged in as.',
+      accept: ['whoami'],
+      explain: '`whoami` answers with your user name, `learner`: the same name you see at the start of the prompt.',
+    },
+  ],
   recap: `
 You ran your first commands! The pattern is always the same: **type a command, press Enter, read the answer.**
 
@@ -171,6 +202,50 @@ Words are separated by **spaces**, so \`ls -l\` and \`ls-l\` are completely diff
       check: all(ran('ls'), lineMatches(/--help/)),
     },
   ],
+  quiz: [
+    {
+      prompt: 'What does `ls -a Pictures` do?',
+      options: [
+        'Lists everything in the `Pictures` folder, hidden files included',
+        'Moves you into the `Pictures` folder and lists it',
+        'Shows a long listing, with details, of the `Pictures` folder',
+        'Lists the folder you are in, then the `Pictures` folder',
+      ],
+      answer: 0,
+      explain: 'The option `-a` changes *how* `ls` lists (hidden files too), and the argument `Pictures` says *what* to list. `ls` only looks; it never moves you anywhere.',
+    },
+    {
+      prompt: 'Why did this error happen?\n\n```\nlearner@sandbox:~$ ls-l\nls-l: command not found\n```',
+      options: [
+        "`ls` isn't installed on this computer",
+        '`ls` needs an argument, such as a folder name',
+        "`-l` isn't a real option for `ls`",
+        "There's no space after `ls`, so the shell looked for a command called `ls-l`",
+      ],
+      answer: 3,
+      explain: "The shell splits a line into words at the spaces, and the first word is the command. Without the space, `ls-l` is a single word: the name of a command that doesn't exist.",
+    },
+    {
+      prompt: 'Which command does exactly the same as `ls -a`?',
+      options: ['`ls -all`', '`ls --all`', '`ls all`'],
+      answer: 1,
+      explain: 'Long options are whole words after **two** dashes, and `--all` is the long name of `-a`. With one dash, `-all` means `-a -l -l` (a long listing with hidden files), and `ls all` looks for a file called `all`.',
+    },
+    {
+      kind: 'command',
+      prompt: 'Type a command that shows a long listing of the current folder, hidden files included.',
+      accept: [
+        'ls -la',
+        'ls -al',
+        'ls -l -a',
+        'ls -a -l',
+        'ls -l --all',
+        'ls --all -l',
+        /^ls(?=.* -[a-zA-Z]*l)(?=.*(?: -[a-zA-Z]*[aA]| --all(?: |$)| --almost-all(?: |$)))(?: (?:-[laAh]+|--all|--almost-all))+(?: \.\/?)?$/,
+      ],
+      explain: 'Short options can be glued together after one dash, in any order: `ls -la`, `ls -al` and `ls -l -a` all mean the same thing.',
+    },
+  ],
   recap: `
 Every command line has the same shape: **command**, then **options** (starting with \`-\` or \`--\`), then **arguments**.
 
@@ -257,6 +332,39 @@ Experienced terminal users type surprisingly little. A handful of keyboard short
       solution: ['history'],
       explain: 'Each command has a number. You can re-run one with `!` and its number (for example `!3`), or run the previous command again with `!!`.',
       check: ran('history'),
+    },
+  ],
+  quiz: [
+    {
+      prompt: "`sleep 100` is running, and you don't want to wait. Which keys end it right away?",
+      options: ['<kbd>Ctrl</kbd>+<kbd>Z</kbd>', '<kbd>Ctrl</kbd>+<kbd>L</kbd>', '<kbd>Ctrl</kbd>+<kbd>C</kbd>', '<kbd>Cmd</kbd>+<kbd>C</kbd> on a Mac'],
+      answer: 2,
+      explain:
+        "<kbd>Ctrl</kbd>+<kbd>C</kbd> interrupts the running command; on a Mac it's the Control key too, since <kbd>Cmd</kbd>+<kbd>C</kbd> copies text. <kbd>Ctrl</kbd>+<kbd>L</kbd> only clears the screen, and <kbd>Ctrl</kbd>+<kbd>Z</kbd> just pauses the command instead of ending it.",
+    },
+    {
+      prompt: '`Desktop`, `Documents` and `Downloads` all start with `D`. You type `cd D` and press <kbd>Tab</kbd>, but nothing seems to happen. What now?',
+      options: [
+        'Press <kbd>Enter</kbd>: the shell picks the first match',
+        'Press <kbd>Tab</kbd> again to see all the names that match',
+        'Press <kbd>↓</kbd> to step through the matching names',
+        'Press <kbd>Ctrl</kbd>+<kbd>R</kbd> to search for the folder',
+      ],
+      answer: 1,
+      explain: 'When several names match, a second <kbd>Tab</kbd> lists them all, and after a few more letters (`cd Doc`) <kbd>Tab</kbd> can finish the name. <kbd>↓</kbd> and <kbd>Ctrl</kbd>+<kbd>R</kbd> work on your command history, not on file names.',
+    },
+    {
+      prompt: 'Which key brings back the command you ran last, so you can run it again or change it first?',
+      options: ['<kbd>↑</kbd>', '<kbd>Tab</kbd>', '<kbd>↓</kbd>', '<kbd>Ctrl</kbd>+<kbd>L</kbd>'],
+      answer: 0,
+      explain: "<kbd>↑</kbd> steps back through the commands you've run, and <kbd>↓</kbd> steps forward again. You can edit a recalled command before you press <kbd>Enter</kbd>.",
+    },
+    {
+      kind: 'command',
+      prompt:
+        'Here is your history. Type the shortcut that runs `cat welcome.txt` again, using its number.\n\n```\nlearner@sandbox:~$ history\n    1  echo I love shortcuts\n    2  cat welcome.txt\n    3  sleep 100\n    4  history\n```',
+      accept: ['!2'],
+      explain: '`!` followed by a number runs that command from your history again, so `!2` runs `cat welcome.txt`. `!!` would repeat the most recent command instead.',
     },
   ],
   recap: `

@@ -35,6 +35,36 @@ export interface Step {
   check: (c: CheckContext) => boolean;
 }
 
+/** Multiple choice: exactly one option is right. */
+export interface ChoiceQuestion {
+  kind?: 'choice';
+  /** Markdown. */
+  prompt: string;
+  /** Markdown for each option (3 or 4). */
+  options: string[];
+  /** Index of the right option. */
+  answer: number;
+  /** Markdown shown once answered: why the answer is right. */
+  explain: string;
+}
+
+/** Type a command line; it is right if it matches one of `accept`. */
+export interface CommandQuestion {
+  kind: 'command';
+  /** Markdown. */
+  prompt: string;
+  /**
+   * Accepted answers: exact command lines (compared after trimming and
+   * collapsing spaces) or patterns. The first entry must be a string; it is
+   * shown as the model answer.
+   */
+  accept: [string, ...(string | RegExp)[]];
+  /** Markdown shown once answered. */
+  explain: string;
+}
+
+export type QuizQuestion = ChoiceQuestion | CommandQuestion;
+
 export interface LessonSetupEnv {
   sys: System;
   /** Absolute path of the learner's home directory. */
@@ -60,6 +90,8 @@ export interface Lesson {
   /** Text printed when the terminal starts (defaults to nothing). */
   banner?: string;
   steps: Step[];
+  /** Questions at the end of the lesson that test what it taught. */
+  quiz?: QuizQuestion[];
   /** Markdown recap shown when the lesson is complete. */
   recap: string;
   /** Commands covered: [command, what it does]. */

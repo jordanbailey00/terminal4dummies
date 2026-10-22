@@ -120,6 +120,48 @@ A few things worth knowing about names on Linux:
       check: ran('ls', { flags: 'R' }),
     },
   ],
+  quiz: [
+    {
+      prompt: 'What does `touch my notes.txt` create?',
+      options: [
+        'Two empty files, called `my` and `notes.txt`',
+        'One empty file, called `my notes.txt`',
+        'A folder called `my` with an empty file `notes.txt` inside it',
+        "Nothing: names can't contain spaces, so you get an error",
+      ],
+      answer: 0,
+      explain:
+        'The shell splits the line at every space, so `touch` receives two names and makes two files. To keep the space in one name, use quotes (`touch "my notes.txt"`) or a backslash (`touch my\\ notes.txt`).',
+    },
+    {
+      prompt: 'Why did this fail?\n\n```\nlearner@sandbox:~/trip$ mkdir photos/beach\nmkdir: cannot create directory ‘photos/beach’: No such file or directory\n```',
+      options: [
+        "Folder names can't contain a `/`",
+        "There's already a folder called `beach`",
+        'You have to `cd photos` before you can make `beach`',
+        "`photos` doesn't exist yet, and plain `mkdir` won't create it",
+      ],
+      answer: 3,
+      explain: "`mkdir` only makes the last folder in the path, and it won't invent the missing `photos`. Add `-p` (*parents*) to create every missing folder along the way: `mkdir -p photos/beach`.",
+    },
+    {
+      prompt: 'Which command lists this folder **and** every folder inside it, all the way down?',
+      options: ['`ls -r`', '`ls -R`', '`ls -a`', '`ls -l`'],
+      answer: 1,
+      explain: '`-R` (a capital R) means **recursive**: list this folder, then every folder inside it, and so on. Lowercase `-r` means something else: *reverse the order*.',
+    },
+    {
+      kind: 'command',
+      prompt: 'Create one empty file called `summer plans.txt`, with a space in its name.',
+      accept: [
+        'touch "summer plans.txt"',
+        "touch 'summer plans.txt'",
+        'touch summer\\ plans.txt',
+        /^touch (?:"summer plans"\.txt|'summer plans'\.txt|summer" "plans\.txt|summer' 'plans\.txt)$/,
+      ],
+      explain: "Quotes keep the space inside one name, and so does a backslash in front of it: `touch summer\\ plans.txt`. Without either, you'd get two files, `summer` and `plans.txt`.",
+    },
+  ],
   recap: `
 You built a little folder tree from nothing:
 
@@ -255,6 +297,50 @@ cp  report.txt  report-backup.txt
       check: any(ran('cp', { flags: 'i' }), ran('mv', { flags: 'i' })),
     },
   ],
+  quiz: [
+    {
+      prompt: "Why did this happen?\n\n```\nlearner@sandbox:~/office$ cp website website-old\ncp: -r not specified; omitting directory 'website'\n```",
+      options: [
+        "`website-old` doesn't exist yet, so there's nowhere to copy to",
+        'Folders can only be moved with `mv`, never copied',
+        '`website` is a folder, and `cp` only copies folders when you add `-r`',
+        'The folder is too big to copy in one go',
+      ],
+      answer: 2,
+      explain: "`cp` copies a folder only with `-r` (*recursive*), as in `cp -r website website-old`. The destination doesn't need to exist yet: `cp` creates it.",
+    },
+    {
+      prompt: '`backup` already holds a file called `letter.txt`. What happens when you run `cp letter.txt backup/`?',
+      options: [
+        '`cp` asks whether you want to replace it',
+        '`cp` refuses and shows an error',
+        '`cp` keeps both, and names the new copy `letter (1).txt`',
+        '`cp` replaces the old copy without asking',
+      ],
+      answer: 3,
+      explain: '`cp` and `mv` replace an existing file silently, and the old version is gone for good. Add `-i` to be asked first: `cp -i letter.txt backup/`.',
+    },
+    {
+      prompt: 'You run `mv draft.txt speech.txt`. What is true afterwards?',
+      options: [
+        'Only `speech.txt` exists, holding what used to be in `draft.txt`',
+        'Both files exist, with the same contents',
+        'Only `draft.txt` exists, now holding what was in `speech.txt`',
+        '`speech.txt` is a new folder, with `draft.txt` inside it',
+      ],
+      answer: 0,
+      explain: 'With two names, `mv` renames: the old name comes first and the new name last. Unlike `cp`, it leaves nothing behind.',
+    },
+    {
+      kind: 'command',
+      prompt: 'Copy the folder `photos`, with everything inside it, to a new folder called `photos-backup`.',
+      accept: [
+        'cp -r photos photos-backup',
+        /^cp(?=.*(?: -[a-zA-Z]*[rRa]| --recursive(?: |$)| --archive(?: |$)))(?: (?:-[rRaivfnpu]+|--recursive|--archive))* photos\/? photos-backup\/?(?: (?:-[rRaivfnpu]+|--recursive|--archive))*$/,
+      ],
+      explain: 'Folders need `-r` (*recursive*), so that `cp` copies everything inside them, all the way down. As always, the source comes first and the destination last.',
+    },
+  ],
   recap: `
 - \`cp SOURCE DESTINATION\` copies; \`cp FILE... FOLDER/\` copies files into a folder; \`cp -r\` copies whole folders.
 - \`mv OLD NEW\` renames; \`mv FILE... FOLDER/\` moves things into a folder. Folders move without \`-r\`.
@@ -366,6 +452,41 @@ Deleting needs only two commands, \`rm\` and \`rmdir\`:
       explain:
         'The first one complains that `ghost.txt` doesn\'t exist; the second says nothing at all. `-f` hides those errors **and** skips every question. Together with `-r`, nothing stands between you and the delete: `rm -rf FOLDER` wipes out a whole tree without a word. Scripts use it on purpose. When you type it yourself, slow down and re-read the line first.',
       check: ran('rm', { flags: 'f' }),
+    },
+  ],
+  quiz: [
+    {
+      prompt: 'What happens to a file you delete with `rm`?',
+      options: [
+        'It goes to the Trash, where you can restore it',
+        "It's gone for good: there's no Trash and no undo",
+        'It moves to a hidden `.trash` folder in your home folder',
+        'You can bring it back by pressing <kbd>Ctrl</kbd>+<kbd>Z</kbd>',
+      ],
+      answer: 1,
+      explain: "`rm` removes the file's name and marks the space it used as free, and nothing goes to a Trash folder. The only real safety net is a backup.",
+    },
+    {
+      prompt:
+        "`rmdir` refused to delete this folder. Which command deletes it together with everything inside it?\n\n```\nlearner@sandbox:~/attic$ rmdir old-games\nrmdir: failed to remove 'old-games': Directory not empty\n```",
+      options: ['`rm old-games`', '`rmdir -r old-games`', '`rm -r old-games`'],
+      answer: 2,
+      explain: '`rmdir` only removes empty folders (it has no `-r`), and plain `rm` refuses folders altogether. `rm -r` deletes the folder and everything in it, so look inside with `ls -R` first.',
+    },
+    {
+      prompt: 'What does the `-f` in `rm -f` do?',
+      options: ['It asks before deleting each file', "It never asks, and stays quiet about files that don't exist", 'It lets `rm` delete folders, too'],
+      answer: 1,
+      explain: "`-f` (*force*) skips every question and hides errors such as *No such file or directory*. It doesn't let `rm` delete folders, though: that still takes `-r`.",
+    },
+    {
+      kind: 'command',
+      prompt: 'Delete `draft1.txt` and `draft2.txt`, but have `rm` ask before each one.',
+      accept: [
+        'rm -i draft1.txt draft2.txt',
+        /^rm(?=.*(?: -[a-zA-Z]*i| --interactive(?:=always)?(?: |$)))(?: (?:-[iv]+|--interactive(?:=always)?))* (?:draft1\.txt draft2\.txt|draft2\.txt draft1\.txt)(?: (?:-[iv]+|--interactive(?:=always)?))*$/,
+      ],
+      explain: '`-i` (*interactive*) makes `rm` ask about each file: an answer starting with `y` deletes it, and anything else keeps it.',
     },
   ],
   recap: `
@@ -495,6 +616,41 @@ Typing every file name gets old fast. **Wildcards** are patterns that match many
       explain:
         "Inside single quotes the shell leaves **everything** alone, wildcards included. Double quotes also stop wildcards (while still allowing a few special things like `$HOME`), and a backslash protects a single character: `echo 5 \\* 3`. You'll use quotes whenever a pattern is meant for the command itself rather than for the shell.",
       check: all(lineMatches(/['"\\]/), (c) => !!c.ev && c.ev.execs.some((e) => base(e.argv[0]) === 'echo' && e.argv.slice(1).some((a) => a.includes('*')))),
+    },
+  ],
+  quiz: [
+    {
+      prompt: 'A folder holds `day1.jpg`, `day2.jpg`, `day10.jpg` and `day11.jpg`. Which pattern matches `day10.jpg` and `day11.jpg`, but **not** `day1.jpg` or `day2.jpg`?',
+      options: ['`day*.jpg`', '`day?.jpg`', '`*1.jpg`', '`day??.jpg`'],
+      answer: 3,
+      explain: 'Each `?` stands for exactly one character, so `day??.jpg` needs exactly two after `day`. `day?.jpg` matches just the one-digit days, `day*.jpg` matches all four, and `*1.jpg` matches `day1.jpg` and `day11.jpg`.',
+    },
+    {
+      prompt: 'Why does `echo *.tmp` show you exactly which files `rm *.tmp` would delete?',
+      options: [
+        '`echo` quietly runs `rm` in a safe test mode',
+        'The shell replaces `*.tmp` with the matching names before either command starts',
+        '`echo` and `rm` each look for matching files themselves, using the same rules',
+      ],
+      answer: 1,
+      explain: 'Wildcards are expanded by the **shell**, so `echo` and `rm` receive exactly the same list of names. `echo` just prints that list, while `rm` deletes everything on it.',
+    },
+    {
+      prompt: "What does this print?\n\n```\necho '5 * 3'\n```",
+      options: ['`5 * 3`', '`15`', "`'5 * 3'`", '`5`, then the names of the files in the folder, then `3`'],
+      answer: 0,
+      explain: 'Inside single quotes the shell leaves everything alone, so `*` stays a plain star, and the quotes are removed before `echo` runs. Without them, the `*` would turn into the names of the files in the folder (and `echo` never does arithmetic).',
+    },
+    {
+      kind: 'command',
+      prompt: "`site` doesn't exist yet. In one command, create it with three folders inside: `css`, `js` and `img`. Use braces.",
+      accept: [
+        'mkdir -p site/{css,js,img}',
+        /^mkdir (?:-p|--parents) (?:site\/? )?site\/\{(?:css,js,img|css,img,js|js,css,img|js,img,css|img,css,js|img,js,css)\}\/?$/,
+        /^mkdir (?:site\/? )?site\/\{(?:css,js,img|css,img,js|js,css,img|js,img,css|img,css,js|img,js,css)\}\/? (?:-p|--parents)$/,
+        /^mkdir site\/? site\/\{(?:css,js,img|css,img,js|js,css,img|js,img,css|img,css,js|img,js,css)\}\/?$/,
+      ],
+      explain: 'The shell turns `site/{css,js,img}` into `site/css site/js site/img` before `mkdir` runs, and `-p` creates the missing `site` folder along the way. Keep the braces free of spaces.',
     },
   ],
   recap: `

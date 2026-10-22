@@ -7,6 +7,8 @@ export interface LessonProgress {
   steps: string[];
   done: boolean;
   updated: number;
+  /** Quiz answers by question number: an option index or the typed command. */
+  quiz?: (number | string | null)[];
 }
 
 export interface ProgressState {
@@ -46,7 +48,24 @@ export function markSteps(lessonId: string, steps: string[], done: boolean): voi
   const prev = state.lessons[lessonId];
   const merged = Array.from(new Set([...(prev?.steps ?? []), ...steps]));
   if (prev && prev.done === (prev.done || done) && merged.length === prev.steps.length) return;
-  commit({ lessons: { ...state.lessons, [lessonId]: { steps: merged, done: prev?.done || done, updated: Date.now() } } });
+  commit({ lessons: { ...state.lessons, [lessonId]: { ...prev, steps: merged, done: prev?.done || done, updated: Date.now() } } });
+}
+
+/** Record the answer to quiz question `index` (of `total`). */
+export function setQuizAnswer(lessonId: string, index: number, total: number, answer: number | string): void {
+  const prev = state.lessons[lessonId];
+  const quiz = Array.from({ length: total }, (_, i) => prev?.quiz?.[i] ?? null);
+  quiz[index] = answer;
+  commit({ lessons: { ...state.lessons, [lessonId]: { steps: prev?.steps ?? [], done: prev?.done ?? false, updated: Date.now(), quiz } } });
+}
+
+/** Clear a lesson's quiz answers so it can be taken again. */
+export function resetQuiz(lessonId: string): void {
+  const prev = state.lessons[lessonId];
+  if (!prev?.quiz) return;
+  const next = { ...prev, updated: Date.now() };
+  delete next.quiz;
+  commit({ lessons: { ...state.lessons, [lessonId]: next } });
 }
 
 export function resetLessonProgress(lessonId: string): void {

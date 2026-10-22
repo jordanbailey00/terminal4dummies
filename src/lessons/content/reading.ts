@@ -194,6 +194,44 @@ None of them change the file in any way: they only read it. So go ahead and look
       check: ran('file', { args: [/(^|\/)mystery$/] }),
     },
   ],
+  quiz: [
+    {
+      kind: 'command',
+      prompt: 'Type a command that shows just the last 20 lines of `app.log`.',
+      accept: [
+        'tail -n 20 app.log',
+        'tail -20 app.log',
+        /^tail (-n ?20|-20|--lines[= ]20) (["']?)(\.\/)?app\.log\2$/,
+        /^tail (["']?)(\.\/)?app\.log\1 (-n ?20|--lines[= ]20)$/,
+        /^tail (-n ?20|-20|--lines[= ]20) ?< ?(["']?)(\.\/)?app\.log\2$/,
+        /^cat (["']?)(\.\/)?app\.log\1 ?\| ?tail (-n ?20|-20|--lines[= ]20)$/,
+      ],
+      explain: '`tail` shows the end of a file, and `-n 20` picks how many lines (`-20` is the short form). `head -n 20` would show the first 20 lines instead: the oldest entries of a log.',
+    },
+    {
+      prompt: 'What does the `18` mean in this output?\n\n```\n$ wc todo.txt\n 4 18 88 todo.txt\n```',
+      options: ['The file has 18 lines', 'The file is 18 bytes long', 'The file has 18 words', 'The longest line is 18 characters long'],
+      answer: 2,
+      explain: 'Without options, `wc` prints three numbers: lines, words and bytes. So `todo.txt` has 4 lines, 18 words and 88 bytes. Add `-l` to get just the line count.',
+    },
+    {
+      prompt: "You're reading a long file in `less`. How do you search it for the word *island*?",
+      options: [
+        'Press <kbd>Ctrl</kbd>+<kbd>F</kbd>, type `island` and press <kbd>Enter</kbd>',
+        'Type `/island` and press <kbd>Enter</kbd>',
+        'Press <kbd>n</kbd>, then type `island`',
+        'Press <kbd>q</kbd>, then run `less island`',
+      ],
+      answer: 1,
+      explain: "In `less`, <kbd>/</kbd> starts a search: type the word after it and press <kbd>Enter</kbd>. After that, <kbd>n</kbd> jumps to the next match, and <kbd>q</kbd> quits when you're done.",
+    },
+    {
+      prompt: 'You find a file called `holiday.mp3` and ask `file` about it:\n\n```\n$ file holiday.mp3\nholiday.mp3: ASCII text\n```\n\nWhat is really inside it?',
+      options: ['A song: the `.mp3` ending says so', 'A song, but `file` can only recognize text files', 'Nothing: *ASCII text* means the file is empty', 'Plain text, whatever the name says'],
+      answer: 3,
+      explain: '`file` ignores the name and looks at the first bytes inside the file, so trust its answer. On Linux an extension is just part of the name: a text file can be called `holiday.mp3`. (An empty file would be reported as *empty*.)',
+    },
+  ],
   recap: `
 - \`cat FILE\` prints a whole file; \`cat -n\` adds line numbers.
 - \`head\` and \`tail\` show the first or last 10 lines; \`-n 5\` picks how many.
@@ -322,6 +360,32 @@ Manual pages open in a viewer called \`less\`. These keys get you around:
       explain:
         "Each result shows a command name, its manual **section** in brackets and its description. Section 1 holds everyday commands, 8 is for administrator commands and 5 for file formats, so `cp (1)` is the one you want. On a full Ubuntu system the list is much longer; try other words too, like `$ man -k directory`.",
       check: any(ran('man', { flags: 'k' }), ran('man', { args: ['--apropos'] }), ran('apropos')),
+    },
+  ],
+  quiz: [
+    {
+      prompt: '`man ls` worked fine a minute ago, but:\n\n```\n$ man cd\nNo manual entry for cd\n```\n\nWhy is there no manual page for `cd`?',
+      options: ['`cd` is a builtin, part of the shell itself, not a separate program', 'Only administrators may read the manual page for `cd`', '`man` only has pages for commands that print something'],
+      answer: 0,
+      explain: 'Builtins are part of the shell itself, so there is no program file to find, and usually no manual page of their own. `help cd` shows the help for `cd` instead.',
+    },
+    {
+      kind: 'command',
+      prompt: "You want to shrink a big file, but you don't know which command does that. Type a command that searches the manual page descriptions for the word *compress*.",
+      accept: ['man -k compress', 'apropos compress', /^(man (-k|--apropos)|apropos) (["']?)compress\3$/],
+      explain: '`man -k` (or `apropos`, which is the same search) lists every manual page whose one-line description mentions the word, `gzip` among them. Then read the one you want with `man gzip`.',
+    },
+    {
+      prompt: 'Which command tells you whether a name is a shell builtin, an alias or a program file?',
+      options: ['`which NAME`', '`help NAME`', '`man NAME`', '`type NAME`'],
+      answer: 3,
+      explain: "`type` knows everything the shell knows, so it can say *builtin*, *alias* or show the program's path. `which` only looks for program files: for a builtin like `cd` it prints nothing at all.",
+    },
+    {
+      prompt: 'The SYNOPSIS section of `man ls` says:\n\n```\nls [OPTION]... [FILE]...\n```\n\nWhat does that tell you?',
+      options: ['You must give exactly one option and one file name', 'Options and file names are both optional, and you can give several of each', 'You type square brackets around each option', 'Options must come after the file names'],
+      answer: 1,
+      explain: 'In a synopsis, anything in `[square brackets]` is optional, and `...` means *you can give several*. So plain `ls` works, and so does `ls -l -a Documents Music`.',
     },
   ],
   recap: `
@@ -499,6 +563,36 @@ There's no clicking: move the cursor with the arrow keys.
       check: all(ran('nano'), not(fileContains('writing/packing-list.txt', /boots/i)), fileContains('writing/packing-list.txt', 'tent')),
     },
   ],
+  quiz: [
+    {
+      prompt: "nano's shortcut list shows `^O Write Out`. What do you press to save?",
+      options: ['Type `^` and then <kbd>O</kbd>', '<kbd>Alt</kbd>+<kbd>O</kbd>', '<kbd>Ctrl</kbd>+<kbd>O</kbd>', '<kbd>O</kbd> on its own'],
+      answer: 2,
+      explain: 'In the shortcut list, `^` stands for the <kbd>Ctrl</kbd> key (and `M-` for <kbd>Alt</kbd>). *Write Out* is how nano says *save*: press <kbd>Ctrl</kbd>+<kbd>O</kbd>, then <kbd>Enter</kbd> to keep the file name.',
+    },
+    {
+      prompt: "You've made a mess of a file in nano and want it to stay exactly as it was. You press <kbd>Ctrl</kbd>+<kbd>X</kbd>, and nano asks **Save modified buffer?** What now?",
+      options: ['Press <kbd>Y</kbd>', 'Press <kbd>N</kbd>', 'Press <kbd>Ctrl</kbd>+<kbd>C</kbd>'],
+      answer: 1,
+      explain: '<kbd>N</kbd> (*no*) leaves nano without saving, so the file stays as it was. <kbd>Y</kbd> would save the mess, and <kbd>Ctrl</kbd>+<kbd>C</kbd> cancels the question and takes you back to editing.',
+    },
+    {
+      prompt: 'How do you move a line to a different place in nano?',
+      options: [
+        'Put the cursor on it, press <kbd>Ctrl</kbd>+<kbd>K</kbd>, move to the new spot and press <kbd>Ctrl</kbd>+<kbd>U</kbd>',
+        'Put the cursor on it, press <kbd>Ctrl</kbd>+<kbd>X</kbd>, move to the new spot and press <kbd>Ctrl</kbd>+<kbd>V</kbd>',
+        'Select it with the mouse and drag it to the new spot',
+      ],
+      answer: 0,
+      explain: "<kbd>Ctrl</kbd>+<kbd>K</kbd> cuts the whole line and <kbd>Ctrl</kbd>+<kbd>U</kbd> pastes it at the cursor. The usual cut and paste keys don't work like that in nano (<kbd>Ctrl</kbd>+<kbd>X</kbd> exits!), and there's no clicking: you move around with the arrow keys.",
+    },
+    {
+      prompt: 'You run `nano ideas.txt` to start a new file, type two lines, then press <kbd>Ctrl</kbd>+<kbd>X</kbd> and answer <kbd>N</kbd>. What does `ls` show afterwards?',
+      options: ['`ideas.txt`, with your two lines in it', '`ideas.txt`, but empty', 'No `ideas.txt` at all'],
+      answer: 2,
+      explain: 'nano edits a copy in memory, the *buffer*, and only writes it to disk when you save. You never saved, so the file was never created.',
+    },
+  ],
   recap: `
 - \`nano FILE\` opens a file (or starts a new one). Move around with the arrow keys and just type.
 - <kbd>Ctrl</kbd>+<kbd>O</kbd> then <kbd>Enter</kbd> saves; <kbd>Ctrl</kbd>+<kbd>X</kbd> exits and offers to save unsaved changes (<kbd>Y</kbd>, <kbd>N</kbd> or <kbd>Ctrl</kbd>+<kbd>C</kbd>).
@@ -637,6 +731,36 @@ Results go to **standard output**, error messages to **standard error**. Both no
       explain:
         "The file is **empty**! The shell sets up `> fruits.txt` before `sort` starts, and setting it up means emptying the file, so `sort` found nothing left to read. Instead, write to a new file (`sort fruits.txt > sorted-fruits.txt`), or use sort's own option, which is safe for this: `sort -o fruits.txt fruits.txt`.",
       check: all(everRan('sort'), ran('cat', { args: [/fruits\.txt$/] }), (c) => fileText(c, 'lab/fruits.txt') === ''),
+    },
+  ],
+  quiz: [
+    {
+      prompt: 'What is in `weather.txt` after these three commands?\n\n```\necho "Monday" > weather.txt\necho "Tuesday" > weather.txt\necho "Wednesday" >> weather.txt\n```',
+      options: ['Monday, Tuesday and Wednesday', 'Only Wednesday', 'Tuesday and Wednesday', 'Monday and Wednesday'],
+      answer: 2,
+      explain: 'Each `>` empties the file before writing, so the second command replaced *Monday* with *Tuesday*. Then `>>` added *Wednesday* to the end.',
+    },
+    {
+      prompt: 'Which command shows the sorted planets on the screen **and** saves them in `sorted.txt`?',
+      options: ['`sort planets.txt > sorted.txt`', '`sort planets.txt >> sorted.txt`', '`sort planets.txt < sorted.txt`', '`sort planets.txt | tee sorted.txt`'],
+      answer: 3,
+      explain: '`tee` copies what it receives both to the screen and into the file. `>` and `>>` send the output only into the file, and `<` saves nothing at all: it feeds a file *into* a command.',
+    },
+    {
+      kind: 'command',
+      prompt: 'Type a command that runs `ls planets.txt missing.txt` but throws away the error message, so only the normal output appears.',
+      accept: [
+        'ls planets.txt missing.txt 2> /dev/null',
+        /^ls (planets\.txt missing\.txt|missing\.txt planets\.txt) 2> ?\/dev\/null$/,
+        /^(2> ?\/dev\/null ls|ls 2> ?\/dev\/null) (planets\.txt missing\.txt|missing\.txt planets\.txt)$/,
+      ],
+      explain: 'Error messages travel on standard error, stream 2, so `2>` redirects just them, and `/dev/null` swallows whatever is written to it. A plain `> /dev/null` would do the opposite: hide the normal output and still show the error.',
+    },
+    {
+      prompt: 'You tried to sort a file into itself:\n\n```\nsort fruits.txt > fruits.txt\n```\n\nNow `cat fruits.txt` prints nothing. What happened?',
+      options: ['The shell emptied the file to set up `>` before `sort` even started', '`sort` removes the lines from a file after reading them', "`>` only works with files that don't exist yet"],
+      answer: 0,
+      explain: 'Redirections are set up before the command runs, and `>` starts by emptying the file, so `sort` found nothing to read. Write to a new file instead, or use `sort -o fruits.txt fruits.txt`, which is safe.',
     },
   ],
   recap: `

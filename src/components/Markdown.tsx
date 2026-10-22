@@ -48,12 +48,14 @@ marked.use({
 
 const cache = new Map<string, string>();
 
-export function renderMarkdown(src: string): string {
-  let html = cache.get(src);
+/** Markdown to HTML; `inline` renders a single line without a surrounding paragraph. */
+export function renderMarkdown(src: string, inline = false): string {
+  const key = (inline ? 'i:' : 'b:') + src;
+  let html = cache.get(key);
   if (html === undefined) {
-    html = marked.parse(src.trim(), { async: false }) as string;
+    html = (inline ? marked.parseInline(src.trim(), { async: false }) : marked.parse(src.trim(), { async: false })) as string;
     if (cache.size > 400) cache.clear();
-    cache.set(src, html);
+    cache.set(key, html);
   }
   return html;
 }
@@ -65,10 +67,13 @@ export interface MarkdownProps {
   onRun?: (command: string) => void;
   /** Called for internal links (so the router can handle them). */
   onNavigate?: (href: string) => void;
+  /** One line of text (rendered in a <span>, without a paragraph). */
+  inline?: boolean;
 }
 
-export function Markdown({ source, className, onRun, onNavigate }: MarkdownProps) {
-  const html = useMemo(() => renderMarkdown(source), [source]);
+export function Markdown({ source, className, onRun, onNavigate, inline }: MarkdownProps) {
+  const html = useMemo(() => renderMarkdown(source, inline), [source, inline]);
+  if (inline) return <span className={className} dangerouslySetInnerHTML={{ __html: html }} />;
   const handle = (target: EventTarget | null, e: MouseEvent | KeyboardEvent) => {
     const el = target as HTMLElement | null;
     const code = el?.closest?.('code.runnable') as HTMLElement | null;

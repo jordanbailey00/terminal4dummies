@@ -170,6 +170,45 @@ ${NANO_SAVE} Then make it executable:
       check: (c) => !!c.ev && c.ev.execs.some((e) => (e.argv[0] === 'greet' || e.argv[0] === 'greet.sh') && e.kind === 'external' && e.status === 0),
     },
   ],
+  quiz: [
+    {
+      prompt: 'What is the first line of a script, `#!/bin/bash`, for?',
+      options: [
+        'It tells Linux which program should run the file: here, bash',
+        "It's only a comment for people reading the script; nothing uses it",
+        "It gives the file permission to run, so `chmod +x` isn't needed",
+        'It loads your settings from `~/.bashrc` before the commands run',
+      ],
+      answer: 0,
+      explain:
+        'When you run `./hello.sh`, Linux sees the `#!` (the **shebang**) and hands the file to the program named after it, `/bin/bash`. It does not make the file executable, though; that is still the job of `chmod +x`.',
+    },
+    {
+      kind: 'command',
+      prompt: 'You type `./hello.sh` and get `bash: ./hello.sh: Permission denied`. Type the command that fixes this, so that `./hello.sh` works.',
+      accept: ['chmod +x hello.sh', /^chmod (u|a|ug|ugo)?\+(x|rx|xr) (\.\/)?hello\.sh$/, /^chmod 0?[57][0-7]{2} (\.\/)?hello\.sh$/],
+      explain: 'The file is not executable yet. `chmod +x hello.sh` gives it the `x` (execute) permission, and from then on `./hello.sh` runs it like any other program.',
+    },
+    {
+      prompt: '`greet.sh` contains:\n\n```\n#!/bin/bash\necho "Hello, $1"\necho "Number of names: $#"\n```\n\nWhat does `./greet.sh "Ada Lovelace" Grace` print?',
+      options: [
+        '`Hello, Ada` and `Number of names: 3`',
+        '`Hello, Ada Lovelace` and `Number of names: 3`',
+        '`Hello, Ada Lovelace` and `Number of names: 2`',
+        '`Hello, $1` and `Number of names: $#`',
+      ],
+      answer: 2,
+      explain:
+        'The quotes hold `Ada Lovelace` together as one argument, so `$1` is `Ada Lovelace`, and `$#`, the number of arguments, is 2. Without the quotes there would be three: `Ada`, `Lovelace` and `Grace`.',
+    },
+    {
+      prompt: 'Your script now lives in `~/bin/greet`. Which line puts `~/bin` on your `PATH` and keeps everything that was already there?',
+      options: ['`export PATH="$HOME/bin"`', '`export PATH = "$HOME/bin:$PATH"`', '`export $PATH="$HOME/bin:$PATH"`', '`export PATH="$HOME/bin:$PATH"`'],
+      answer: 3,
+      explain:
+        'The `:$PATH` at the end keeps the old list after your own folder, so every other command is still found. Leaving it out would throw that list away (even `cat` would stop working), and the other two break the variable rules: no spaces around `=`, and no `$` in front of the name being set.',
+    },
+  ],
   recap: `
 - A **script** is a text file of commands. Its first line, the shebang \`#!/bin/bash\`, says which program runs it.
 - Run it with \`bash script.sh\`, or make it executable with \`chmod +x\` and run \`./script.sh\`.
@@ -349,6 +388,42 @@ ${NANO_SAVE}`,
       explain:
         'Your first automation! Run it again: this time the `if` skips creating the folder and the copies are simply refreshed. With a few more lines you could put the date in the folder name, and the computer can even run a script like this on a schedule for you (look up *cron* when you are ready).',
       check: all(ranScript('backup.sh'), isFile('project/backup/notes.txt'), isFile('project/backup/todo.txt'), isFile('project/backup/ideas.txt')),
+    },
+  ],
+  quiz: [
+    {
+      prompt: 'You type `if [-f notes.txt]; then echo "Found it"; fi` and get `[-f: command not found`. Why?',
+      options: [
+        'There is no file called `notes.txt` in this folder, so the test failed',
+        'An `if` must always have an `else` part, even if it does nothing',
+        '`[` is a command, so it needs a space after it, and `]` needs a space before it',
+        'File names in a test must be in quotes, as in `"notes.txt"`',
+      ],
+      answer: 2,
+      explain: '`[` is a command (its other name is `test`), and the shell splits words at spaces, so `[-f` looked like the name of an unknown command. Write the test as `[ -f notes.txt ]`.',
+    },
+    {
+      prompt: 'What does this print?\n\n```\nn=1\nwhile [ $n -le 3 ]; do\n  echo "Lap $n"\n  n=$((n + 1))\ndone\n```',
+      options: ['`Lap 1` and `Lap 2`', '`Lap 1`, `Lap 2` and `Lap 3`', '`Lap 1`, `Lap 2`, `Lap 3` and `Lap 4`', '`Lap 1` over and over, until you press <kbd>Ctrl</kbd>+<kbd>C</kbd>'],
+      answer: 1,
+      explain: '`-le` means *less than or equal to*, so the loop runs while `n` is 1, 2 or 3. Each lap adds one to `n`, and once it reaches 4 the test is false and the loop stops.',
+    },
+    {
+      prompt: '`temp` holds a number. Which test is true only when it is greater than 25?',
+      options: ['`[ "$temp" -gt 25 ]`', '`[ "$temp" > 25 ]`', '`[ "$temp" -ge 25 ]`', '`[ "$temp" = 25 ]`'],
+      answer: 0,
+      explain:
+        '`-gt` means *greater than*, while `-ge` is also true for exactly 25. Inside `[ ]` a `>` is a redirection: it quietly creates a file called `25`, and the test then comes out true for any temperature.',
+    },
+    {
+      kind: 'command',
+      prompt: 'Type a one-line `for` loop that prints the name of every `.txt` file in the current folder, one per line. Use `f` as the loop variable and `echo` to print.',
+      accept: [
+        'for f in *.txt; do echo "$f"; done',
+        /^for f in \*\.txt ?; ?do echo (\$f|\$\{f\}|"\$f"|"\$\{f\}") ?; ?done$/,
+        /^for f in \*\.txt ?; ?do echo "[^"$]*(\$f\b|\$\{f\})[^"]*" ?; ?done$/,
+      ],
+      explain: 'The wildcard `*.txt` turns into the list of matching files, and the loop runs the commands between `do` and `done` once for each of them, with `$f` holding the next name every time.',
     },
   ],
   recap: `

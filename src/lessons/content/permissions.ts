@@ -206,6 +206,32 @@ So \`-rwxr-xr--\` means: the owner may do everything, the group may read and run
       check: all(seenOutput(/photos: Permission denied/), modeIs('club/photos', 0o755)),
     },
   ],
+  quiz: [
+    {
+      prompt: '`ls -l` shows this line:\n\n```\n-rw-rw-r-- 1 learner team 120 Oct 21 10:00 plan.txt\n```\n\nWhat may members of the group `team` do with `plan.txt`?',
+      options: ['Read it and change it, but not run it', 'Only read it', 'Read it, change it and run it', 'Nothing: only the owner may use it'],
+      answer: 0,
+      explain: 'After the type character come three sets of three letters: `rw-` for the owner, `rw-` for the group and `r--` for everyone else. The group has `r` and `w`, but no `x`.',
+    },
+    {
+      kind: 'command',
+      prompt: "You try to run your own script:\n\n```\n$ ./backup.sh\nbash: ./backup.sh: Permission denied\n```\n\nType a `chmod` command that lets you, its owner, run it, without changing anyone else's permissions.",
+      accept: ['chmod u+x backup.sh', /^chmod u(\+x|\+rx|\+xr|\+rwx|=rwx) (["']?)(\.\/)?backup\.sh\2$/],
+      explain: 'Linux only runs a file that has `x` (execute) permission. `u+x` adds it for the **u**ser who owns the file and nobody else; `chmod +x` would give it to everyone.',
+    },
+    {
+      prompt: 'Which permissions does `chmod 750 run.sh` give the file?',
+      options: ['`rwxrw----`', '`rw-r-x---`', '`rwxr-x---`', '`---r-xrwx`'],
+      answer: 2,
+      explain: 'Each digit adds up r = 4, w = 2 and x = 1, in the order user, group, others: 7 = 4 + 2 + 1 = `rwx`, 5 = 4 + 1 = `r-x`, and 0 = `---`.',
+    },
+    {
+      prompt: "You own the folder `photos`, but you can't go inside:\n\n```\n$ ls -l\ntotal 4\ndrw-r--r-- 2 learner learner 4096 Oct 21 10:00 photos\n$ cd photos\nbash: cd: photos: Permission denied\n```\n\nWhy?",
+      options: ['You need `w` permission to go into a folder', 'The `d` at the start means the folder is disabled', 'The folder is empty, so there is nothing to go into', 'It has no `x` permission, which on a folder means *go inside*'],
+      answer: 3,
+      explain: "On a folder, `x` is the permission to enter it and use what's inside, and this one has no `x` for anybody. `chmod 755 photos` opens the door again. The `d` just means *directory*.",
+    },
+  ],
   recap: `
 - \`ls -l\` shows the type, then three sets of \`rwx\`: for the **u**ser who owns the file, its **g**roup and all **o**thers.
 - On a file \`x\` means *run it*; on a folder it means *go inside*.
@@ -364,6 +390,37 @@ sudo asks for **your own** password, to prove it's really you at the keyboard. W
       check: any(all(isFile('mistake.txt'), ownerIs('mistake.txt', 1000)), missing('mistake.txt')),
     },
   ],
+  quiz: [
+    {
+      prompt: 'Why is this refused, even with sudo?\n\n```\n$ sudo echo "127.0.0.1 blog.test" >> /etc/hosts\nbash: /etc/hosts: Permission denied\n```',
+      options: ['sudo did not accept your password', 'Your own shell opens the file for `>>` before sudo starts, and your shell is not root', 'Not even root may change `/etc/hosts`', 'It should have been `>` instead of `>>`'],
+      answer: 1,
+      explain: "Redirections are done by the shell you're typing into, which runs as you, before the command even starts. Here sudo never even ran; it would only have given root's power to `echo`, which doesn't need it.",
+    },
+    {
+      kind: 'command',
+      prompt: 'Type a command that adds the line `127.0.0.1 shop.test` to the end of the protected file `/etc/hosts`, using sudo in a way that works.',
+      accept: [
+        'echo "127.0.0.1 shop.test" | sudo tee -a /etc/hosts',
+        /^echo (["']?)127\.0\.0\.1 shop\.test\1 ?\| ?sudo tee (-a|--append) \/etc\/hosts( ?> ?\/dev\/null)?$/,
+        /^sudo (sh|bash) -c 'echo ("?)127\.0\.0\.1 shop\.test\2 ?>> ?\/etc\/hosts'$/,
+        /^sudo (sh|bash) -c "echo ('?)127\.0\.0\.1 shop\.test\2 ?>> ?\/etc\/hosts"$/,
+      ],
+      explain: "Here the file is opened by `tee`, which runs as root. Don't forget the `-a`: without it, tee replaces the whole file instead of adding to the end.",
+    },
+    {
+      prompt: 'sudo asks `[sudo] password for learner:`, but nothing shows up on the screen as you type. What should you do?',
+      options: ['Keep typing your own password and press <kbd>Enter</kbd>: hiding it is normal', "Type root's password instead, since the command will run as root", 'Press <kbd>Ctrl</kbd>+<kbd>C</kbd>: the terminal has frozen'],
+      answer: 0,
+      explain: "sudo asks for **your** password, to check that it's really you at the keyboard, and it deliberately shows nothing while you type, not even dots.",
+    },
+    {
+      prompt: 'In your home folder, you run `sudo touch notes.txt`. What is the catch?',
+      options: ['There is none: the file belongs to you, as usual', "The file is created in root's home folder instead of yours", '`touch` refuses to run as root', "`notes.txt` belongs to root, so you can't change it without sudo"],
+      answer: 3,
+      explain: 'Anything a command creates while running as root belongs to root. You never need sudo in your own home folder; if a file there ends up belonging to root, `sudo chown learner:learner notes.txt` gives it back.',
+    },
+  ],
   recap: `
 - **root** is the all-powerful administrator account, and system files belong to it.
 - \`sudo COMMAND\` runs one command as root, after asking for *your* password (typing shows nothing).
@@ -485,6 +542,32 @@ Try a calendar program that isn't installed yet: \`$ cal\`. Ubuntu notices, and 
       explain:
         "The package's files are gone. Try `cal` now and you get an error; bash may even complain that `/usr/bin/cal` doesn't exist, because it remembered where the program used to be. `sudo apt purge PACKAGE` would also delete the package's system-wide settings, and `sudo apt autoremove` cleans up extra packages that nothing needs any more.",
       check: all(not(packageInstalled('ncal')), everRanAsRoot('apt', { args: [/^(remove|purge)$/], aliases: ['apt-get'] })),
+    },
+  ],
+  quiz: [
+    {
+      prompt: 'What does `sudo apt update` do?',
+      options: ['Installs the newest version of every program you have', "Refreshes apt's list of available packages, without installing anything", 'Updates Ubuntu to its next release', 'Updates apt itself to its newest version'],
+      answer: 1,
+      explain: '`apt update` only downloads a fresh copy of the catalogue, so that apt knows about the newest versions. Actually installing newer versions of your software is `sudo apt upgrade`.',
+    },
+    {
+      kind: 'command',
+      prompt: 'Type the command that installs the package `cowsay`.',
+      accept: ['sudo apt install cowsay', 'sudo apt-get install cowsay', /^sudo apt(-get)?( -y| --yes)? install( -y| --yes)? cowsay( -y| --yes)?$/],
+      explain: 'Installing changes the system, so it needs `sudo` in front. apt then downloads the package, plus anything it depends on, and sets it up.',
+    },
+    {
+      prompt: 'Which of these commands works without sudo?',
+      options: ['`apt install ncal`', '`apt remove ncal`', '`apt update`', '`apt search calendar`'],
+      answer: 3,
+      explain: 'Looking things up, with `apt search`, `apt show` or `apt list --installed`, is safe for anyone. Anything that changes the system, such as `update`, `install` and `remove`, needs sudo.',
+    },
+    {
+      prompt: "What is Ubuntu telling you here?\n\n```\n$ cal\nCommand 'cal' not found, but can be installed with:\nsudo apt install ncal\n```",
+      options: ["`cal` isn't installed, but the package `ncal` provides it", '`cal` is misspelled, and the right name is `ncal`', '`cal` only works when you run it with sudo', '`cal` was removed for safety reasons'],
+      answer: 0,
+      explain: 'A package can contain commands with other names: installing `ncal` gives you the `cal` command. Ubuntu found the missing command in its catalogue and tells you which package to install.',
     },
   ],
   recap: `
