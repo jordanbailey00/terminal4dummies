@@ -7,7 +7,7 @@ export const TERMINAL_FONT = '"JetBrains Mono Variable", "JetBrains Mono", ui-mo
 
 export const TERMINAL_THEME_DARK: ITheme = {
   background: '#0c0c0c',
-  foreground: '#e4e4e4',
+  foreground: '#f5f5f5',
   cursor: '#5eea8c',
   cursorAccent: '#0c0c0c',
   selectionBackground: 'rgba(255, 255, 255, 0.22)',
@@ -19,7 +19,7 @@ export const TERMINAL_THEME_DARK: ITheme = {
   blue: '#5aa7ff',
   magenta: '#c792ea',
   cyan: '#4dd0e1',
-  white: '#c8c8c8',
+  white: '#dcdcdc',
   brightBlack: '#6e6e6e',
   brightRed: '#ff8f8f',
   brightGreen: '#6ff09a',
@@ -35,10 +35,10 @@ export const TERMINAL_THEME_DARK: ITheme = {
 
 /** Colors chosen to stay readable on a light background ("white" is a mid gray). */
 export const TERMINAL_THEME_LIGHT: ITheme = {
-  background: '#fafafa',
+  background: '#ffffff',
   foreground: '#1f1f1f',
   cursor: '#1a7f37',
-  cursorAccent: '#fafafa',
+  cursorAccent: '#ffffff',
   selectionBackground: 'rgba(0, 0, 0, 0.15)',
   selectionInactiveBackground: 'rgba(0, 0, 0, 0.08)',
   black: '#1f1f1f',

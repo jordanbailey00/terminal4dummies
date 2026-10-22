@@ -10,26 +10,26 @@
   --code-bg: #181818;
   --line: #262626;
   --line-strong: #383838;
-  --fg: #e4e4e4;
-  --fg-muted: #a0a0a0;
-  --fg-faint: #6e6e6e;
+  --fg: #f5f5f5;
+  --fg-muted: #b4b4b4;
+  --fg-faint: #7d7d7d;
   --accent: #4cd97b;
   --accent-dim: rgba(76, 217, 123, 0.13);
   --info: #6cb2ff;
   --warn: #e5b94e;
   --danger: #ff7a7a;
   --term-bg: #0c0c0c;
-  --term-fg: #e4e4e4;
+  --term-fg: #f5f5f5;
   --term-line: #262626;
-  --term-chrome: #7a7a7a;
+  --term-chrome: #858585;
   color-scheme: dark;
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
-    --bg: #fafafa;
-    --bg-hover: #f0f0f0;
-    --code-bg: #eeeeee;
+    --bg: #ffffff;
+    --bg-hover: #f3f3f3;
+    --code-bg: #f0f0f0;
     --line: #e0e0e0;
     --line-strong: #cacaca;
     --fg: #1a1a1a;
@@ -40,7 +40,7 @@
     --info: #1f6fd1;
     --warn: #9a6400;
     --danger: #c43c3c;
-    --term-bg: #fafafa;
+    --term-bg: #ffffff;
     --term-fg: #1f1f1f;
     --term-line: #e0e0e0;
     --term-chrome: #7c7c7c;
@@ -49,9 +49,9 @@
 }
 
 :root[data-theme='light'] {
-  --bg: #fafafa;
-  --bg-hover: #f0f0f0;
-  --code-bg: #eeeeee;
+  --bg: #ffffff;
+  --bg-hover: #f3f3f3;
+  --code-bg: #f0f0f0;
   --line: #e0e0e0;
   --line-strong: #cacaca;
   --fg: #1a1a1a;
@@ -62,7 +62,7 @@
   --info: #1f6fd1;
   --warn: #9a6400;
   --danger: #c43c3c;
-  --term-bg: #fafafa;
+  --term-bg: #ffffff;
   --term-fg: #1f1f1f;
   --term-line: #e0e0e0;
   --term-chrome: #7c7c7c;
@@ -407,7 +407,12 @@ kbd {
 .term-body {
   flex: 1;
   min-height: 0;
-  padding: 8px 4px 4px 12px;
+  overflow: hidden;
+  /* xterm's fit addon reads this element's height as the space it may fill,
+     so the padding must not be part of it (content-box), which also keeps a
+     gap at the bottom that output never reaches */
+  box-sizing: content-box;
+  padding: 8px 4px 12px 12px;
 }
 .term-body .xterm {
   height: 100%;
