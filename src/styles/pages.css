@@ -151,7 +151,7 @@
   transition: width 0.3s ease;
 }
 .steps-heading {
-  margin: 24px 0 8px;
+  margin: 40px 0 10px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--line);
   color: var(--fg-faint);
@@ -161,6 +161,19 @@
   list-style: none;
   margin: 0;
   padding: 0;
+}
+/* a little more air between the blocks of a lesson's text */
+.lesson-intro > * + * {
+  margin-top: 0.3em;
+}
+.lesson-intro pre,
+.lesson-intro table,
+.lesson-intro .callout {
+  margin-bottom: 1.5em;
+}
+.lesson-intro h2,
+.lesson-intro h3 {
+  margin-top: 2em;
 }
 .step {
   display: grid;
@@ -271,7 +284,7 @@
   color: var(--fg);
 }
 .lesson-complete {
-  margin-top: 24px;
+  margin-top: 32px;
   padding-top: 14px;
   border-top: 1px solid var(--accent);
 }
@@ -311,7 +324,7 @@
 }
 /* quiz */
 .quiz {
-  margin-top: 24px;
+  margin-top: 8px;
 }
 .quiz-list {
   list-style: none;
@@ -476,14 +489,14 @@
   color: var(--fg-faint);
 }
 .lesson-next {
-  margin-top: 20px;
+  margin-top: 28px;
 }
 
 .lesson-nav {
   display: flex;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 28px;
+  margin-top: 40px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
   font-family: var(--font-mono);

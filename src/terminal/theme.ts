@@ -3,7 +3,18 @@
 
 import type { ITheme } from '@xterm/xterm';
 
-export const TERMINAL_FONT = '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
+export const TERMINAL_FONT = '"Commit Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
+
+/** The site's monospace font (the --font-mono CSS variable), which the terminal uses too. */
+export function terminalFont(): string {
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim();
+  return v || TERMINAL_FONT;
+}
+
+/** The first family in a font stack, e.g. "IBM Plex Mono". */
+export function primaryFamily(stack: string): string {
+  return stack.split(',')[0].trim().replace(/^["']|["']$/g, '');
+}
 
 export const TERMINAL_THEME_DARK: ITheme = {
   background: '#0c0c0c',

@@ -153,7 +153,6 @@ So \`-rwxr-xr--\` means: the owner may do everything, the group may read and run
       id: 'listing',
       title: 'Read the permissions',
       instruction: "You're in a folder called `club`. Show the long listing and look at the first column of each line:\n\n`$ ls -l`",
-      hint: 'That is a lowercase L after the dash.',
       solution: ['ls -l'],
       explain:
         "Reading the first column: `diary.txt` is `rw-r--r--` (you may read and change it, everyone else may only read it). `hello.sh` is `rw-rw-r--`: nobody has an `x`, so nobody can run it yet. `rules.txt` is `r--r--r--`, read-only even for you. `photos` starts with `d` because it's a folder. The two names after the permissions are the file's **owner** (`learner`) and its **group** (also `learner`).",
@@ -163,7 +162,6 @@ So \`-rwxr-xr--\` means: the owner may do everything, the group may read and run
       id: 'id',
       title: 'Who are you?',
       instruction: 'Linux decides which three letters apply to you by comparing you with the owner and group of the file. See who you are and which groups you belong to:\n\n`$ id`',
-      hint: '`groups` shows the same list of groups without the numbers.',
       solution: ['id'],
       explain:
         "`uid=1000(learner)` is your **user ID**: Linux keeps track of users by number and shows the name for convenience. `gid` is your main group, and `groups=` lists every group you're a member of. On Ubuntu each user gets a private group with the same name, which is why `ls -l` showed `learner learner`. Notice `sudo` in the list: it makes you an administrator, the topic of the next lesson.",
@@ -174,7 +172,6 @@ So \`-rwxr-xr--\` means: the owner may do everything, the group may read and run
       title: 'Make your diary private',
       instruction:
         'Right now anyone can read your diary (`r--` for group and others). Take read permission away from the **g**roup and the **o**thers with `chmod` (*change mode*), then look at the result:\n\n`$ chmod go-r diary.txt`\n\n`$ ls -l diary.txt`',
-      hint: 'Read it as *group and others, minus read*. There are no spaces inside `go-r`.',
       solution: ['chmod go-r diary.txt', 'ls -l diary.txt'],
       explain:
         "Now it's `rw-------`: only you can read or change it. This letter style of `chmod` is *who*, then `+` (add), `-` (remove) or `=` (set exactly), then *which permissions*. Who can be `u` (the user who owns it), `g` (group), `o` (others) or `a` (all). So `chmod u+w` gives the owner write permission, and `chmod a-x` takes execute away from everybody.",
@@ -188,7 +185,6 @@ So \`-rwxr-xr--\` means: the owner may do everything, the group may read and run
       title: 'Lock yourself out',
       instruction:
         "Permissions apply to the owner too. Remove your **own** read permission, then try to read the diary:\n\n`$ chmod u-r diary.txt`\n\n`$ cat diary.txt`\n\nNow repair it with a number instead of letters. `600` means *read and write for you, nothing for anyone else*:\n\n`$ chmod 600 diary.txt`",
-      hint: 'After you see Permission denied, run `chmod 600 diary.txt` to make the diary readable again (by you only).',
       solution: ['chmod u-r diary.txt', 'cat diary.txt', 'chmod 600 diary.txt'],
       explain:
         "**Permission denied** is Linux enforcing the rules, even on the owner. You could still repair it because the owner may always change a file's permissions. Numbers work digit by digit (user, group, others), adding **r = 4, w = 2 and x = 1**: `6` is 4 + 2 = `rw-`, and `0` is `---`. So `600` is `rw-------`, the usual choice for private files such as passwords and keys.",
@@ -199,7 +195,6 @@ So \`-rwxr-xr--\` means: the owner may do everything, the group may read and run
       title: 'Run a program',
       instruction:
         '`hello.sh` is a tiny program (a *script*). Try to run it; the `./` means *the file in this folder*:\n\n`$ ./hello.sh`\n\nNo `x`, no running. Add execute permission and try again:\n\n`$ chmod +x hello.sh`\n\n`$ ./hello.sh`',
-      hint: 'Press ↑ twice to bring back `./hello.sh` after the chmod.',
       solution: ['./hello.sh', 'chmod +x hello.sh', './hello.sh'],
       explain:
         "Without `x`, Linux refuses to run a file, whatever is inside it. `+x` with no *who* letter gives execute permission to everyone, so the file is now `rwxrwxr-x`. Many people use `chmod 755` for scripts instead: `rwxr-xr-x` (7 = 4 + 2 + 1), where anyone may run it but only you may change it. You'll write your own scripts later in the course.",
@@ -210,7 +205,6 @@ So \`-rwxr-xr--\` means: the owner may do everything, the group may read and run
       title: 'Unlock a read-only file',
       instruction:
         '`rules.txt` is `r--r--r--`, so not even you may change it. Give the **u**ser (you, the owner) write permission, then add a rule to the end of the file:\n\n`$ chmod u+w rules.txt`\n\n`$ echo "4. Leave the club tidier than you found it." >> rules.txt`',
-      hint: 'If the `echo` says Permission denied, the `chmod` hasn\'t happened yet. Check with `ls -l rules.txt`.',
       solution: ['chmod u+w rules.txt', 'echo "4. Leave the club tidier than you found it." >> rules.txt'],
       explain:
         "The file is now `rw-r--r--`, which as a number is **644**: the standard setting for ordinary files. You may edit it, everyone else may read it. Making a file read-only is a gentle safety catch: you can always unlock your own files, but you won't change them by accident.",
@@ -221,7 +215,6 @@ So \`-rwxr-xr--\` means: the owner may do everything, the group may read and run
       title: 'What x means for a folder',
       instruction:
         'On a folder, `x` is the permission to go inside. Take it away from everyone and try to enter:\n\n`$ chmod -x photos`\n\n`$ cd photos`\n\nNow give the folder the usual folder permissions, `755`:\n\n`$ chmod 755 photos`',
-      hint: 'If `cd` worked and you are now inside photos, the first chmod did not happen. Come back with `cd ..` and try again.',
       solution: ['chmod -x photos', 'cd photos', 'chmod 755 photos'],
       explain:
         "Without `x`, a folder is a locked door: `cd` is refused and nothing inside can be opened, even if you can see the names. `755` is `rwxr-xr-x`: you have every permission, while others may look inside and enter but not add or delete files. Almost every folder is set this way.",
@@ -372,7 +365,6 @@ sudo asks for **your own** password, to prove it's really you at the keyboard. W
       title: 'A file you may not change',
       instruction:
         '`/etc/hosts` is a small system file that works like an address book, pairing names with network addresses. Look at who owns it:\n\n`$ ls -l /etc/hosts`\n\nIt belongs to `root` and is `rw-r--r--`, so you may read it but not change it. Try to add a line anyway:\n\n`$ echo "127.0.0.1 shop.test" >> /etc/hosts`',
-      hint: 'Type the second command exactly, including the two `>` signs that append to the file.',
       solution: ['ls -l /etc/hosts', 'echo "127.0.0.1 shop.test" >> /etc/hosts'],
       explain:
         "**Permission denied**: the `w` for others is missing, and you are \"others\" for this file. Good! Imagine if any program you ran could rewrite your system's settings. (The line you tried to add would make the name `shop.test` point to your own computer, which web developers do all the time. Names ending in `.test` are reserved for exactly this kind of experiment.)",
@@ -383,7 +375,6 @@ sudo asks for **your own** password, to prove it's really you at the keyboard. W
       title: "Borrow root's power",
       instruction:
         "Run `whoami` as root. When sudo asks for your password, type anything (you won't see it) and press <kbd>Enter</kbd>:\n\n`$ sudo whoami`",
-      hint: 'Nothing appears while you type the password. That is normal. Just type something and press Enter.',
       solution: ['sudo whoami', PASSWORD],
       explain:
         "`root`! Only that one command ran as root. Run `$ whoami` again without sudo and you're back to `learner`. On a real computer you would type your real login password here, and after three wrong tries sudo gives up.",
@@ -394,7 +385,6 @@ sudo asks for **your own** password, to prove it's really you at the keyboard. W
       title: 'Edit a system file',
       instruction:
         "Open the protected file in nano, as root:\n\n`$ sudo nano /etc/hosts`\n\nThe cursor starts at the top. Type this line and press <kbd>Enter</kbd>, so it becomes the new first line:\n\n```\n127.0.0.1   shop.test\n```\n\nSave with <kbd>Ctrl</kbd>+<kbd>O</kbd> and <kbd>Enter</kbd>, then exit with <kbd>Ctrl</kbd>+<kbd>X</kbd>.",
-      hint: 'If sudo asks for your password again, type anything and press Enter. If nano says *Permission denied* when saving, you forgot the `sudo` in front of nano: exit with Ctrl+X, answer N, and start again.',
       solution: [
         'sudo nano /etc/hosts',
         { keys: '127.0.0.1   shop.test\r', label: 'Type the new line and press Enter', delay: 400 },
@@ -420,7 +410,6 @@ sudo asks for **your own** password, to prove it's really you at the keyboard. W
       title: 'Append with sudo tee',
       instruction:
         "The fix is to let a root program write the file. `tee` copies what it receives into a file (and onto the screen), and `-a` makes it **a**ppend:\n\n`$ echo \"127.0.0.1 blog.test\" | sudo tee -a /etc/hosts`",
-      hint: "Don't forget the `-a`. Without it, tee replaces the whole file instead of adding to the end.",
       solution: ['echo "127.0.0.1 blog.test" | sudo tee -a /etc/hosts'],
       explain:
         "This time the file was opened by `tee`, which ran as root. The line you see on screen is tee's copy; add `> /dev/null` to the end of the command to hide it. Take a look with `$ tail -3 /etc/hosts`.",
@@ -602,7 +591,6 @@ Try a calendar program that isn't installed yet: \`$ cal\`. Ubuntu notices, and 
       title: 'Refresh the package list',
       instruction:
         "Before installing, refresh apt's catalog so it knows about the newest versions. That changes the system, so it needs sudo. Type any password when asked, then press <kbd>Enter</kbd>:\n\n`$ sudo apt update`",
-      hint: 'Without sudo, apt stops with *Permission denied* errors: only root may change the package lists.',
       solution: ['sudo apt update', PASSWORD],
       explain:
         "The `Hit` and `Get` lines are apt checking each repository. *packages can be upgraded* means newer versions of software you already have are available; `sudo apt upgrade` would install them. Run `update` every now and then, and always before installing.",
@@ -612,7 +600,6 @@ Try a calendar program that isn't installed yet: \`$ cal\`. Ubuntu notices, and 
       id: 'install',
       title: 'Install it',
       instruction: 'Now install the package:\n\n`$ sudo apt install ncal`',
-      hint: 'sudo remembers your password for a while. If it asks again, type anything and press Enter.',
       solution: ['sudo apt install ncal'],
       explain:
         "apt downloaded the package, unpacked it and set it up. Bigger programs often need other packages too; apt then lists them all and asks *Do you want to continue? [Y/n]* before going ahead.",

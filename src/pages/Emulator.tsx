@@ -110,7 +110,6 @@ export function Emulator() {
             key={generation}
             backend={live.backend}
             system={live.system}
-            initialTitle="learner@sandbox: ~"
             onReady={(t) => (termRef.current = t)}
             actions={
               <button type="button" onClick={reset} title="Erase everything and start fresh">

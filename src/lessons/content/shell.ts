@@ -50,7 +50,6 @@ The braces in \`\${city}\` mark exactly where the name ends, which matters when 
       id: 'set',
       title: 'Make a variable',
       instruction: 'Create a variable called `city`. Remember: no spaces around the `=`.\n\n`$ city=Paris`',
-      hint: 'Type it as one single word: `city=Paris`.',
       solution: ['city=Paris'],
       explain:
         'Nothing was printed: the shell quietly stored the value. Variable names may contain letters, digits and underscores (but must not start with a digit), and they are case-sensitive: `city` and `CITY` are two different variables.',
@@ -98,7 +97,6 @@ The braces in \`\${city}\` mark exactly where the name ends, which matters when 
       title: 'Share it with programs: export',
       instruction:
         "Your `city` variable only exists inside this shell. The programs the shell starts (its **child** programs) can't see it. Ask `printenv`, a separate program that prints environment variables:\n\n`$ printenv city`\n\nNothing at all. Now **export** the variable, which adds it to the environment, and ask again:\n\n`$ export city`\n\n`$ printenv city`",
-      hint: '`export city` has no `$` in it: you are naming the variable, not using its value.',
       solution: ['printenv city', 'export city', 'printenv city'],
       explain:
         "Every program you start receives a **copy** of the environment. Plain variables stay behind in the shell; exported ones are copied along. You can create and export in one go, as in `export EDITOR=nano`. Because programs get a copy, nothing they do can change the variables in your shell.",
@@ -226,7 +224,6 @@ You rarely see this number, but it's always kept in the special variable \`$?\`.
       id: 'zero',
       title: 'Success is zero',
       instruction: 'Run a command that works, then print its exit status straight away:\n\n`$ ls`\n\n`$ echo $?`',
-      hint: 'Run them as two separate commands, one after the other.',
       solution: ['ls', 'echo $?'],
       explain: '`0`: everything went fine. `$?` always holds the status of the **most recent** command, so check it immediately. Even `echo $?` itself succeeds and sets it back to 0.',
       check: all(lineMatches(/\$\?/), printedNumber(/^0$/)),
@@ -253,7 +250,6 @@ You rarely see this number, but it's always kept in the special variable \`$?\`.
       id: 'and',
       title: 'Only if it worked: &&',
       instruction: '`&&` runs the second command only if the first one succeeded. Create a folder and step into it in one go:\n\n`$ mkdir build && cd build`',
-      hint: 'Two ampersands (Shift+7 on a US keyboard), with spaces around them.',
       solution: ['mkdir build && cd build'],
       explain:
         'The prompt shows you are now in `~/build`. If `mkdir` had failed, `cd` would never have run. See for yourself: go back with `$ cd ..` and run the same line again. This time `mkdir` complains that the folder already exists, and you stay where you are.',
@@ -263,7 +259,6 @@ You rarely see this number, but it's always kept in the special variable \`$?\`.
       id: 'or',
       title: 'Plan B: ||',
       instruction: '`||` is the opposite: it runs the second command only if the first one **failed**. Use it for a plan B:\n\n`$ cd nowhere || echo "No such folder"`',
-      hint: 'The | key is usually Shift plus the backslash key, above Enter.',
       solution: ['cd nowhere || echo "No such folder"'],
       explain: '`cd` failed (status 1), so `echo` ran. Had the folder existed, `cd` would have succeeded and the message would have been skipped.',
       check: all(lineMatches(/\|\|/), (c) => !!c.ev && c.ev.execs.length >= 2 && c.ev.execs[0].status !== 0),
@@ -443,7 +438,6 @@ Aliases you type only last until the shell exits. To keep them, you write them i
       id: 'create',
       title: 'Make your own alias',
       instruction: "Make an alias called `now` that shows the time in hours and minutes:\n\n`$ alias now='date +%H:%M'`\n\nThen use it:\n\n`$ now`",
-      hint: 'No spaces around the `=`, and keep the single quotes: they hold `date +%H:%M` together as one piece of text.',
       solution: ["alias now='date +%H:%M'", 'now'],
       explain:
         "The rules are the same as for variables: no spaces around `=`, and quotes around anything that contains spaces. If an alias has the same name as a real command, the alias wins. That's how `ls` gets its colors.",
@@ -466,7 +460,6 @@ Aliases you type only last until the shell exits. To keep them, you write them i
       title: 'Start a fresh shell',
       instruction:
         'Aliases live in the shell\'s memory, so they vanish when it exits. End this shell (on your own computer, this would close the terminal window or tab):\n\n`$ exit`\n\nPress <kbd>Enter</kbd> to start a brand-new shell, then try your alias:\n\n`$ now`',
-      hint: 'After `exit`, the terminal waits for you to press Enter before it starts a new shell.',
       solution: ['exit', { keys: '\r', label: 'Press Enter to start a new shell', delay: 300 }, 'now'],
       explain:
         "`now` is gone, but `ls` has its colors back. The new shell read `~/.bashrc` as it started, and that file sets up the `ls` alias but knows nothing about `now`.",
@@ -481,7 +474,6 @@ Aliases you type only last until the shell exits. To keep them, you write them i
       title: 'Make it permanent',
       instruction:
         "To keep `now`, add it to the end of `~/.bashrc`. Use **two** arrows, which append:\n\n`$ echo \"alias now='date +%H:%M'\" >> ~/.bashrc`\n\nThen check the end of the file:\n\n`$ tail -3 ~/.bashrc`\n\n> [!CAUTION]\n> A single `>` would replace the whole file with that one line, wiping out all your other settings. To add to a file, always use `>>`.",
-      hint: "If you prefer, open the file with `nano ~/.bashrc`, add the line at the very end, then save with Ctrl+O and exit with Ctrl+X. If you used a single `>` by accident, press Reset above the terminal to start the lesson over.",
       solution: [`echo "alias now='date +%H:%M'" >> ~/.bashrc`, 'tail -3 ~/.bashrc'],
       explain:
         'The double quotes around the whole line let the single quotes inside reach the file untouched. Editing the file in nano works just as well: it is an ordinary text file.',
@@ -501,7 +493,6 @@ Aliases you type only last until the shell exits. To keep them, you write them i
       title: 'Change your prompt',
       instruction:
         "The prompt itself comes from a variable, `PS1`, full of special codes:\n\n| Code | Shows |\n| --- | --- |\n| `\\u` | your user name |\n| `\\h` | the computer's name |\n| `\\w` | the current folder, like `~/Documents` |\n| `\\W` | only its last part, like `Documents` |\n| `\\$` | `$`, or `#` when you are root |\n\nGive yourself a shorter prompt (single quotes keep the backslashes safe):\n\n`$ PS1='\\u:\\W\\$ '`",
-      hint: 'Copy it exactly, including the space before the closing quote, so your typing does not stick to the `$`.',
       solution: ["PS1='\\u:\\W\\$ '"],
       explain:
         "To add color, wrap a color code in `\\[\\e[...m\\]`. For example `$ PS1='\\[\\e[1;35m\\]\\u\\[\\e[0m\\]:\\W\\$ '` shows your name in bold magenta. The number picks the color (32 green, 33 yellow, 34 blue, 35 magenta, 36 cyan), `1;` makes it bold and `0` switches back to normal. `\\[` and `\\]` tell bash that the codes take up no space on screen. Changed your mind? `source ~/.bashrc` brings back the original. To keep a prompt you like, add its `PS1=` line to the end of `~/.bashrc` with nano.",

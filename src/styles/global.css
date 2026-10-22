@@ -1,7 +1,7 @@
 /* ------------------------------------------------------------------ tokens */
 :root {
   --font-text: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-mono: 'Commit Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --header-h: 40px;
 
   /* dark (default): neutral black, shared by the page and the terminal */
@@ -380,16 +380,10 @@ kbd {
   font-size: 12px;
   user-select: none;
 }
-.term-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .term-actions {
   display: flex;
   gap: 2px;
+  margin-left: auto;
 }
 .term-actions button {
   height: 22px;

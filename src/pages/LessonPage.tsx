@@ -3,7 +3,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Markdown } from '../components/Markdown';
 import { QuizPanel } from '../components/Quiz';
 import { usePageTitle } from '../components/usePageTitle';
-import { lessonById, moduleOf, neighbours, LESSONS } from '../lessons';
+import { lessonById, neighbours, LESSONS } from '../lessons';
 import { coach, type Tip } from '../lessons/coach';
 import { LessonRunner, buildLessonSystem } from '../lessons/engine';
 import { QuizRunner, buildQuizSystem, savedEntries } from '../lessons/quiz';
@@ -61,7 +61,6 @@ export function LessonPage({ lessonId }: { lessonId: string }) {
 function LessonView({ lesson }: { lesson: Lesson }) {
   usePageTitle(lesson.title);
   const progress = useProgress();
-  const mod = moduleOf(lesson);
   const { prev, next } = neighbours(lesson);
   const quiz = useMemo(() => lesson.quiz ?? [], [lesson]);
   // the terminal runs either the lesson's computer or the quiz's
@@ -226,7 +225,6 @@ function LessonView({ lesson }: { lesson: Lesson }) {
 
   const completedCount = lesson.steps.filter((s) => completed.has(s.id)).length;
   const lessonNumber = LESSONS.indexOf(lesson) + 1;
-  const indexInModule = mod.lessons.indexOf(lesson) + 1;
 
   return (
     <div className={`lesson-layout show-${mobileTab}`}>
@@ -241,16 +239,12 @@ function LessonView({ lesson }: { lesson: Lesson }) {
       <section className="lesson-panel" ref={panelRef} aria-label="Lesson">
         <div className="lesson-crumbs">
           <Link to="/learn">← lessons</Link>
-          <span className="faint">
-            {mod.title} {indexInModule}/{mod.lessons.length}
-          </span>
         </div>
         <h1 className="lesson-title">
           <span className="num">{String(lessonNumber).padStart(2, '0')}</span>
           {lesson.title}
         </h1>
         <div className="lesson-meta">
-          <span>{lesson.minutes} min</span>
           <div className="progress" aria-hidden="true">
             <div className="progress-bar" style={{ width: `${(completedCount / lesson.steps.length) * 100}%` }} />
           </div>
@@ -342,7 +336,6 @@ function LessonView({ lesson }: { lesson: Lesson }) {
             key={`${mode}:${generation}`}
             backend={live.backend}
             system={live.system}
-            initialTitle={mode === 'quiz' ? 'quiz' : 'learner@sandbox: ~'}
             onReady={(t) => (termRef.current = t)}
             actions={
               mode === 'quiz' ? (
@@ -392,7 +385,6 @@ function StepItem({
   onRun: (cmd: string) => void;
   onSkip: () => void;
 }) {
-  const [hint, setHint] = useState(false);
   const [shown, setShown] = useState(false);
   const single = step.solution.length === 1 && typeof step.solution[0] === 'string' ? (step.solution[0] as string) : null;
   const sequence = useMemo(() => step.solution.map(solutionText), [step]);
@@ -410,11 +402,6 @@ function StepItem({
           <>
             <Markdown source={step.instruction} onRun={onRun} />
             <div className="step-actions">
-              {step.hint && (
-                <button type="button" className="btn" onClick={() => setHint((h) => !h)} aria-expanded={hint}>
-                  {hint ? 'hide hint' : 'hint'}
-                </button>
-              )}
               <button
                 type="button"
                 className="btn"
@@ -425,17 +412,12 @@ function StepItem({
               >
                 {single ? 'type it for me' : shown ? 'hide solution' : 'show solution'}
               </button>
-              {(hint || shown) && (
+              {shown && (
                 <button type="button" className="btn skip" onClick={onSkip}>
                   skip step
                 </button>
               )}
             </div>
-            {hint && step.hint && (
-              <div className="step-hint">
-                <Markdown source={step.hint} onRun={onRun} />
-              </div>
-            )}
             {shown && !single && (
               <ol className="step-sequence">
                 {sequence.map((s, i) => (

@@ -1,4 +1,4 @@
-// The terminal window: xterm.js under a thin title bar.
+// The terminal window: xterm.js under a thin bar of controls.
 
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -8,7 +8,7 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { MobileKeys } from './MobileKeys';
-import { TERMINAL_FONT, onThemeChange, terminalTheme } from './theme';
+import { onThemeChange, primaryFamily, terminalFont, terminalTheme } from './theme';
 import type { XtermBackend } from './xtermBackend';
 import { readPrefs, writePrefs } from '../state/prefs';
 import type { System } from '../shell/system';
@@ -17,8 +17,6 @@ export interface TerminalViewProps {
   backend: XtermBackend;
   /** The simulated computer (used to warn before leaving with unsaved editor changes). */
   system?: System;
-  /** Title shown until the shell sets one. */
-  initialTitle?: string;
   actions?: ReactNode;
   autoFocus?: boolean;
   /** Called with the xterm instance once it is ready (for focusing etc.). */
@@ -30,10 +28,9 @@ function isTouchDevice(): boolean {
   return typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches ?? false);
 }
 
-export function TerminalView({ backend, system, initialTitle = 'Terminal', actions, autoFocus = true, onReady, className }: TerminalViewProps) {
+export function TerminalView({ backend, system, actions, autoFocus = true, onReady, className }: TerminalViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
-  const [title, setTitle] = useState(initialTitle);
   const [touch] = useState(isTouchDevice);
   const [fontSize, setFontSize] = useState(() => readPrefs().fontSize);
 
@@ -87,7 +84,7 @@ export function TerminalView({ backend, system, initialTitle = 'Terminal', actio
     const setup = () => {
       if (disposed) return;
       term = new Terminal({
-        fontFamily: TERMINAL_FONT,
+        fontFamily: terminalFont(),
         fontSize: prefs.fontSize,
         lineHeight: 1.15,
         cursorBlink: true,
@@ -147,7 +144,6 @@ export function TerminalView({ backend, system, initialTitle = 'Terminal', actio
         if (ev.metaKey && !ev.ctrlKey) return false;
         return true;
       });
-      term.onTitleChange((t) => setTitle(t || initialTitle));
       // Attach only after the renderer has measured the font and the
       // terminal has been fitted to its container.
       let tries = 0;
@@ -174,7 +170,7 @@ export function TerminalView({ backend, system, initialTitle = 'Terminal', actio
     };
 
     // Wait for the web font so character cells are measured correctly.
-    const fontReady = document.fonts?.load ? document.fonts.load(`${prefs.fontSize}px "JetBrains Mono Variable"`).catch(() => undefined) : Promise.resolve();
+    const fontReady = document.fonts?.load ? document.fonts.load(`${prefs.fontSize}px "${primaryFamily(terminalFont())}"`).catch(() => undefined) : Promise.resolve();
     void Promise.race([fontReady, new Promise((r) => setTimeout(r, 1500))]).then(setup);
 
     return () => {
@@ -192,9 +188,6 @@ export function TerminalView({ backend, system, initialTitle = 'Terminal', actio
   return (
     <div className={`term-window ${className ?? ''}`} onMouseDown={() => setTimeout(() => termRef.current?.focus(), 0)}>
       <div className="term-titlebar">
-        <span className="term-title" title={title}>
-          {title}
-        </span>
         <span className="term-actions" onMouseDown={(e) => e.stopPropagation()}>
           <button type="button" onClick={() => changeFont(-1)} title="Smaller text" aria-label="Smaller text">
             A−

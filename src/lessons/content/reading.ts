@@ -190,7 +190,6 @@ None of them change the file in any way: they only read it. So go ahead and look
       id: 'cat',
       title: 'Print a whole file',
       instruction: "You're in a folder called `library`. Print the short poem in it:\n\n`$ cat poem.txt`",
-      hint: 'Type `cat po` and press <kbd>Tab</kbd> to complete the file name.',
       solution: ['cat poem.txt'],
       explain:
         "`cat` is short for *concatenate*, which means *chain together*: give it several files (`cat a.txt b.txt`) and it prints them one after another. For a short file like this one it's perfect. For a long file, the beginning would scroll off the top of the screen.",
@@ -200,7 +199,6 @@ None of them change the file in any way: they only read it. So go ahead and look
       id: 'cat-n',
       title: 'Number the lines',
       instruction: 'Add `-n` to number every line:\n\n`$ cat -n poem.txt`',
-      hint: 'The option goes between the command and the file name: `cat -n poem.txt`.',
       solution: ['cat -n poem.txt'],
       explain: 'Numbers make it easy to talk about *line 7*. Blank lines get a number too; `cat -b` numbers only the lines that have text on them.',
       check: any(ran('cat', { flags: 'n' }), ran('cat', { flags: 'b' })),
@@ -210,7 +208,6 @@ None of them change the file in any way: they only read it. So go ahead and look
       title: 'Just the beginning',
       instruction:
         "The ship's log is much longer. `head` shows just the first 10 lines:\n\n`$ head captains-log.txt`\n\nAdd `-n` and a number to choose how many:\n\n`$ head -n 5 captains-log.txt`",
-      hint: 'There\'s a space on both sides of the number: `head -n 5 captains-log.txt`. Type `cap` and press <kbd>Tab</kbd> to complete the name.',
       solution: ['head captains-log.txt', 'head -n 5 captains-log.txt'],
       explain: 'Perfect for a quick look at what a file is about, like the column names at the top of a spreadsheet file. You may also see the short form `head -5`, which means the same.',
       check: withCount('head', /captains-log\.txt/),
@@ -219,7 +216,6 @@ None of them change the file in any way: they only read it. So go ahead and look
       id: 'tail',
       title: 'Just the end',
       instruction: '`tail` is the opposite: it shows the **last** lines. How did the voyage end?\n\n`$ tail -n 3 captains-log.txt`',
-      hint: 'It works just like `head`: `tail -n 3 captains-log.txt`.',
       solution: ['tail -n 3 captains-log.txt'],
       explain:
         "`tail` is the go-to tool for log files, where the newest entries are always at the bottom. `tail -f FILE` goes one better: it keeps watching the file and prints new lines as they're added, until you press <kbd>Ctrl</kbd>+<kbd>C</kbd>.",
@@ -230,7 +226,6 @@ None of them change the file in any way: they only read it. So go ahead and look
       title: 'Scroll through a long file',
       instruction:
         "To read the whole log comfortably, open it in `less`:\n\n`$ less captains-log.txt`\n\nInside `less`:\n\n| Key | Does |\n| --- | --- |\n| <kbd>Space</kbd> / <kbd>b</kbd> | page down / page back up |\n| <kbd>↓</kbd> / <kbd>↑</kbd> | one line down / up |\n| `/` then a word, then <kbd>Enter</kbd> | search forward |\n| <kbd>n</kbd> | next match |\n| <kbd>q</kbd> | quit |\n\nPage down and back up once, then find the day they reached land: type `/island` and press <kbd>Enter</kbd>, then press <kbd>n</kbd> for the next mention. Press <kbd>q</kbd> when you're done.",
-      hint: 'The search starts with a forward slash: press <kbd>/</kbd>, and the bottom line shows `/` waiting for you to type the word.',
       solution: [
         'less captains-log.txt',
         { keys: ' ', label: 'Press Space to page down' },
@@ -248,7 +243,6 @@ None of them change the file in any way: they only read it. So go ahead and look
       id: 'wc',
       title: 'Count the lines',
       instruction: 'How long was the voyage? Count the lines with `wc` (*word count*) and its `-l` option (a lowercase L, for *lines*):\n\n`$ wc -l captains-log.txt`',
-      hint: 'That\'s a lowercase L, not the number one: `wc -l captains-log.txt`.',
       solution: ['wc -l captains-log.txt'],
       explain:
         '102 lines: a title, a blank line and 100 days at sea. Without `-l`, `wc` shows three numbers: lines, words and bytes (for plain English text, bytes and characters are the same thing). `-w` counts just the words.',
@@ -258,7 +252,6 @@ None of them change the file in any way: they only read it. So go ahead and look
       id: 'file',
       title: 'What kind of file is this?',
       instruction: "There's also a file called `mystery`, with no extension. Rather than printing it and hoping for the best, ask `file` what it is:\n\n`$ file mystery`",
-      hint: 'Just the command and the name: `file mystery`.',
       solution: ['file mystery'],
       explain:
         "It's a picture! `file` doesn't care about the name: it reads the first few bytes inside the file, where most formats leave a recognizable signature. On Linux, extensions are just a naming habit. A photo can be called `mystery`, and a text file can be called `song.mp3`. Try `$ file *` to check everything here at once.",
@@ -382,7 +375,6 @@ Manual pages open in a viewer called \`less\`. These keys get you around:
       title: 'Read the manual',
       instruction:
         'Every proper command comes with a **manual page**. Open the one for `ls`:\n\n`$ man ls`\n\nScroll down a page with <kbd>Space</kbd>. Then search for the word *sort*: type `/sort` and press <kbd>Enter</kbd>, and press <kbd>n</kbd> to jump to the next match. Press <kbd>q</kbd> to quit.',
-      hint: 'Press <kbd>/</kbd> first; the bottom line then shows `/` and waits for the word. Press <kbd>q</kbd> at any time to leave.',
       solution: [
         'man ls',
         { keys: ' ', label: 'Press Space to page down' },
@@ -401,7 +393,6 @@ Manual pages open in a viewer called \`less\`. These keys get you around:
       id: 'dash-help',
       title: 'The quick version: --help',
       instruction: 'Manual pages can be long. Most commands also print a compact summary of their options when you add `--help`:\n\n`$ mkdir --help`',
-      hint: 'Two dashes and no space: `mkdir --help`.',
       solution: ['mkdir --help'],
       explain:
         "`--help` prints straight into the terminal instead of opening a viewer; for long ones, scroll back up with your mouse wheel. It's the fastest answer to *what was that option called again?* A few programs use `-h` instead.",
@@ -411,7 +402,6 @@ Manual pages open in a viewer called \`less\`. These keys get you around:
       id: 'man-cd',
       title: 'A command without a manual',
       instruction: 'Now try the manual for `cd`:\n\n`$ man cd`',
-      hint: 'Type `man cd` exactly. This time an error message is the expected result.',
       solution: ['man cd'],
       explain:
         "*No manual entry for cd*! That's because `cd` is a **builtin**, part of the shell itself. It has to be: every program runs as a separate *process* with its own current folder, so a separate `cd` program could only change its own folder before exiting, leaving your shell exactly where it was.",
@@ -421,7 +411,6 @@ Manual pages open in a viewer called \`less\`. These keys get you around:
       id: 'help',
       title: 'Help for builtins',
       instruction: 'Builtins have their own help command, called `help`:\n\n`$ help cd`',
-      hint: '`help` is a command of its own: `help cd`.',
       solution: ['help cd'],
       explain: 'The first line shows how to call it, followed by a description and the options, like a mini manual page. Run `help` on its own to list all the builtins: `cd`, `echo`, `pwd`, `history` and friends.',
       check: ran('help'),
@@ -431,7 +420,6 @@ Manual pages open in a viewer called \`less\`. These keys get you around:
       title: 'Builtin or program?',
       instruction:
         "How can you tell which kind of command you're dealing with? Ask `type`, which describes each name you give it:\n\n`$ type cd ls cat`\n\n`which` answers a narrower question: *where is the program's file?*\n\n`$ which cat`",
-      hint: '`type` accepts several names at once: `type cd ls cat`. Then run `which cat`.',
       solution: ['type cd ls cat', 'which cat'],
       explain:
         "`type` knows everything the shell knows: `cd` is a builtin, `ls` is an **alias** (a nickname: typing `ls` really runs `ls --color=auto`, which adds the colors), and `cat` is a program stored in `/usr/bin`. `which` only looks for program files, so `which cd` prints nothing at all.",
@@ -441,7 +429,6 @@ Manual pages open in a viewer called \`less\`. These keys get you around:
       id: 'apropos',
       title: 'Find a command by keyword',
       instruction: "What if you don't know a command's name? `man -k` searches the one-line descriptions of all manual pages:\n\n`$ man -k copy`",
-      hint: '`apropos copy` does exactly the same search.',
       solution: ['man -k copy'],
       explain:
         "Each result shows a command name, its manual **section** in brackets and its description. Section 1 holds everyday commands, 8 is for administrator commands and 5 for file formats, so `cp (1)` is the one you want. On a full Ubuntu system the list is much longer; try other words too, like `$ man -k directory`.",
@@ -614,7 +601,6 @@ There's no clicking: move the cursor with the arrow keys.
       title: 'Open nano, then leave',
       instruction:
         "The most important thing to know about any editor is how to get out again. Open nano with a new file called `shopping.txt`:\n\n`$ nano shopping.txt`\n\nLook around: the file name at the top, *[ New File ]* near the bottom, the shortcuts below it. Then press <kbd>Ctrl</kbd>+<kbd>X</kbd> to exit.",
-      hint: 'Hold down <kbd>Ctrl</kbd> and press <kbd>X</kbd>. On a Mac, use the Control key, not Command.',
       solution: ['nano shopping.txt', { keys: '\x18', label: 'Press Ctrl+X to exit' }],
       explain:
         "Whatever happens in nano, <kbd>Ctrl</kbd>+<kbd>X</kbd> is the way out. You didn't type anything, so nano left without a question, and it didn't create the file either: `$ ls` won't show `shopping.txt` yet. nano only writes a file when you save.",
@@ -625,7 +611,6 @@ There's no clicking: move the cursor with the arrow keys.
       title: 'Type and save',
       instruction:
         "Open the file again and type a short shopping list, one item per line (press <kbd>Enter</kbd> between them), for example *milk*, *bread* and *apples*:\n\n`$ nano shopping.txt`\n\nTo save, press <kbd>Ctrl</kbd>+<kbd>O</kbd> (*Write Out*). nano suggests the file name at the bottom; press <kbd>Enter</kbd> to accept it. Then exit with <kbd>Ctrl</kbd>+<kbd>X</kbd>.",
-      hint: 'After <kbd>Ctrl</kbd>+<kbd>O</kbd>, the bottom of the screen says *File Name to Write: shopping.txt*. Just press <kbd>Enter</kbd>.',
       solution: [
         'nano shopping.txt',
         { keys: 'milk\rbread\rapples', label: 'Type milk, Enter, bread, Enter, apples' },
@@ -642,7 +627,6 @@ There's no clicking: move the cursor with the arrow keys.
       title: 'Save on the way out',
       instruction:
         "Open the list once more and add *eggs* at the top: the cursor starts there, so just type `eggs` and press <kbd>Enter</kbd>.\n\n`$ nano shopping.txt`\n\nThis time, press <kbd>Ctrl</kbd>+<kbd>X</kbd> straight away. nano notices the unsaved change and asks **Save modified buffer?** Press <kbd>Y</kbd> for yes, then <kbd>Enter</kbd> to confirm the file name.",
-      hint: 'Answer the question with the <kbd>Y</kbd> key, then press <kbd>Enter</kbd> when nano shows the file name.',
       solution: [
         'nano shopping.txt',
         { keys: 'eggs\r', label: 'Type eggs and press Enter' },
@@ -659,7 +643,6 @@ There's no clicking: move the cursor with the arrow keys.
       title: 'Move a line',
       instruction:
         "The steps of this tea recipe are in the wrong order. Open it:\n\n`$ nano tea.txt`\n\nPress <kbd>↓</kbd> until the cursor is on *2. Put a tea bag in a cup.*, and press <kbd>Ctrl</kbd>+<kbd>K</kbd> to **cut** that line. Then press <kbd>↑</kbd> once to get to *3. Pour the hot water...* and press <kbd>Ctrl</kbd>+<kbd>U</kbd> to **paste** the line back in above it. Save and exit as before: <kbd>Ctrl</kbd>+<kbd>X</kbd>, <kbd>Y</kbd>, <kbd>Enter</kbd>.",
-      hint: 'If the line lands in the wrong place, press <kbd>Ctrl</kbd>+<kbd>K</kbd> to cut it again, move, and paste once more. Check the result afterwards with `cat tea.txt`.',
       solution: [
         'nano tea.txt',
         { keys: '\x1b[B\x1b[B\x1b[B\x1b[B', label: 'Press ↓ four times, to the line starting with 2.' },
@@ -677,7 +660,6 @@ There's no clicking: move the cursor with the arrow keys.
       title: 'Find a word',
       instruction:
         "The packing list is long, and a summer trip doesn't need *snow boots*. Instead of scrolling, search:\n\n`$ nano packing-list.txt`\n\nPress <kbd>Ctrl</kbd>+<kbd>F</kbd> (*Where Is*), type `boots` and press <kbd>Enter</kbd>: the cursor jumps to the match. Cut that line with <kbd>Ctrl</kbd>+<kbd>K</kbd>, then save and exit with <kbd>Ctrl</kbd>+<kbd>X</kbd>, <kbd>Y</kbd>, <kbd>Enter</kbd>.\n\n> [!WARNING]\n> In real nano, search is <kbd>Ctrl</kbd>+<kbd>W</kbd>. Browsers use <kbd>Ctrl</kbd>+<kbd>W</kbd> to close the tab, so this practice version moved search to <kbd>Ctrl</kbd>+<kbd>F</kbd>. Don't press <kbd>Ctrl</kbd>+<kbd>W</kbd> here!",
-      hint: 'After <kbd>Ctrl</kbd>+<kbd>F</kbd>, the bottom line says *Search:*. Type the word there and press <kbd>Enter</kbd>.',
       solution: [
         'nano packing-list.txt',
         { keys: '\x06', label: 'Press Ctrl+F to search' },
@@ -835,7 +817,6 @@ Results go to **standard output**, error messages to **standard error**. Both no
       id: 'save',
       title: 'Send output into a file',
       instruction: "You're in a folder called `lab`. Start a weather diary: `>` sends a command's output into a file instead of onto the screen.\n\n`$ echo \"Monday: rainy\" > weather.txt`\n\nNothing shows up on the screen, because the text goes into the file instead. Check what's inside with `$ cat weather.txt`.",
-      hint: 'Keep the quotes around the text, and put a space on each side of the `>`.',
       solution: ['echo "Monday: rainy" > weather.txt', 'cat weather.txt'],
       explain: '`weather.txt` didn\'t exist, so `>` created it. This works with any command: `ls > files.txt` saves a listing, `date > today.txt` saves the date and time.',
       check: all(fileContains('lab/weather.txt', /monday/i), ran('cat', { args: [/weather\.txt$/] })),
@@ -845,7 +826,6 @@ Results go to **standard output**, error messages to **standard error**. Both no
       title: '> replaces, >> adds',
       instruction:
         "Now write Tuesday's weather the same way, and look at the file:\n\n`$ echo \"Tuesday: sunny\" > weather.txt`\n\n`$ cat weather.txt`\n\nMonday is gone! `>` empties the file before writing. To **add** to the end instead, use `>>`:\n\n`$ echo \"Wednesday: windy\" >> weather.txt`\n\n`$ cat weather.txt`",
-      hint: 'Two arrows, with no space between them: `>>`.',
       solution: ['echo "Tuesday: sunny" > weather.txt', 'cat weather.txt', 'echo "Wednesday: windy" >> weather.txt', 'cat weather.txt'],
       explain:
         'One arrow **replaces**, two arrows **add**. `>` gives no warning before it wipes a file, so double-check the arrows when the file matters. (For extra safety, `set -o noclobber` makes bash refuse to overwrite existing files with `>`; `>|` then overrides it when you really mean it.)',
@@ -859,7 +839,6 @@ Results go to **standard output**, error messages to **standard error**. Both no
       id: 'input',
       title: 'Feed a file in with <',
       instruction: '`<` works the other way round: it feeds a file into a command\'s **input**. Compare these two:\n\n`$ wc -l planets.txt`\n\n`$ wc -l < planets.txt`',
-      hint: 'Think of `<` as an arrow pointing into the command: `wc -l < planets.txt`.',
       solution: ['wc -l planets.txt', 'wc -l < planets.txt'],
       explain:
         "Both count 8 lines, but the second doesn't show the file name. With `<`, it's the shell that opens the file; `wc` just receives a stream of text, exactly as if you had typed it on the keyboard, so it has no idea what the file was called.",
@@ -870,7 +849,6 @@ Results go to **standard output**, error messages to **standard error**. Both no
       title: 'Errors take a different route',
       instruction:
         "Try saving a listing that includes a file that doesn't exist:\n\n`$ ls planets.txt missing.txt > out.txt`\n\nThe error still appears on the screen! It went to **standard error**, which `>` doesn't touch. To redirect errors, put a `2` in front of the arrow:\n\n`$ ls planets.txt missing.txt 2> errors.txt`",
-      hint: 'No space between the 2 and the arrow: `2>`.',
       solution: ['ls planets.txt missing.txt > out.txt', 'ls planets.txt missing.txt 2> errors.txt'],
       explain:
         "This time the normal output came to the screen and the error went into the file (see for yourself: `$ cat errors.txt`). Keeping the two streams apart is deliberate: you can save the results and still notice the problems, or the other way round.",
@@ -881,7 +859,6 @@ Results go to **standard output**, error messages to **standard error**. Both no
       title: 'Throw errors away, or keep everything',
       instruction:
         "`/dev/null` is a special file that swallows anything written to it. Send errors there to hide them:\n\n`$ ls planets.txt missing.txt 2> /dev/null`\n\nAnd `&>` sends **both** streams into the same file:\n\n`$ ls planets.txt missing.txt &> everything.txt`\n\n`$ cat everything.txt`",
-      hint: '`/dev/null` is written like any other path, with slashes. `&>` is an ampersand followed by an arrow.',
       solution: ['ls planets.txt missing.txt 2> /dev/null', 'ls planets.txt missing.txt &> everything.txt', 'cat everything.txt'],
       explain:
         "`2> /dev/null` is handy when a command reports problems you already know about, but use it with care: it also hides the errors you didn't expect. You'll often see the older spelling `> everything.txt 2>&1`, which does the same as `&>`: it means *send errors (2) to the same place as the output (1)*. The order matters there: `2>&1` has to come after `> everything.txt`.",
@@ -892,7 +869,6 @@ Results go to **standard output**, error messages to **standard error**. Both no
       title: 'Screen and file at once',
       instruction:
         "Sometimes you want to see the output *and* save it. The `|` symbol, called a **pipe**, passes one command's output to another command (much more about pipes in the next module). `tee` copies whatever it receives both to the screen and into a file:\n\n`$ sort planets.txt | tee sorted.txt`",
-      hint: 'The `|` key is usually above <kbd>Enter</kbd> or next to the left <kbd>Shift</kbd> key; you may need <kbd>Shift</kbd> to type it.',
       solution: ['sort planets.txt | tee sorted.txt'],
       explain: "You saw the sorted planets, and `sorted.txt` holds the same list. `tee` is named after the T-shaped pipe fitting plumbers use to split one flow into two. Add `-a` to append instead of replacing: `tee -a sorted.txt`.",
       check: all(ran('tee'), fileContains('lab/sorted.txt', /Earth/)),
@@ -902,7 +878,6 @@ Results go to **standard output**, error messages to **standard error**. Both no
       title: 'The classic trap',
       instruction:
         "Here's a mistake almost everyone makes once, so let's make it here, where it can't hurt. Try to sort a file *into itself*:\n\n`$ sort fruits.txt > fruits.txt`\n\n`$ cat fruits.txt`",
-      hint: 'Type it exactly as shown, then look at the file with `cat fruits.txt`. It\'s supposed to go wrong!',
       solution: ['sort fruits.txt > fruits.txt', 'cat fruits.txt'],
       explain:
         "The file is **empty**! The shell sets up `> fruits.txt` before `sort` starts, and setting it up means emptying the file, so `sort` found nothing left to read. Instead, write to a new file (`sort fruits.txt > sorted-fruits.txt`), or use sort's own option, which is safe for this: `sort -o fruits.txt fruits.txt`.",

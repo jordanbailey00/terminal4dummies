@@ -117,7 +117,6 @@ Type these lines:
 ${HELLO}\`\`\`
 
 ${NANO_SAVE}`,
-      hint: 'The first line must be exactly `#!/bin/bash`, with nothing before it. If nano asks *Save modified buffer?* when you exit, press Y and then Enter.',
       solution: ['nano hello.sh', ...typeInNano(HELLO, 'the five lines of the script')],
       explain:
         "Your script is just a text file (`$ cat hello.sh` shows it), and nothing has run yet. The `.sh` at the end of the name is a reminder for humans that it's a shell script; Linux itself doesn't care what a file is called.",
@@ -136,7 +135,6 @@ ${NANO_SAVE}`,
       title: 'Make it a real command',
       instruction:
         'Typing `bash` every time is a chore; real programs start on their own. Try it:\n\n`$ ./hello.sh`\n\n*Permission denied*: the file isn\'t executable yet. Give it the `x` permission and try again:\n\n`$ chmod +x hello.sh`\n\n`$ ./hello.sh`',
-      hint: 'Press ↑ twice to bring back `./hello.sh` after the chmod.',
       solution: ['./hello.sh', 'chmod +x hello.sh', './hello.sh'],
       explain:
         "With the `x` permission and the shebang line, your script behaves like any other program. The `./` is still needed because the current folder isn't in your `PATH`; you'll fix that at the end of this lesson.",
@@ -163,7 +161,6 @@ ${GREET}\`\`\`
 ${NANO_SAVE} Then make it executable:
 
 \`$ chmod +x greet.sh\``,
-      hint: 'Check the dollar signs: `$1`, `$#` and `$@`. If `chmod` says the file does not exist, nano was not saved: open it again with `nano greet.sh`.',
       solution: ['nano greet.sh', ...typeInNano(GREET, 'the script shown above'), 'chmod +x greet.sh'],
       explain: '`greet.sh` is ready to run. Each time it runs, `$1` and friends are filled in afresh from whatever you typed after its name.',
       check: all(isFile('greet.sh'), fileContains('greet.sh', /\$\{?1\b/), isExecutable('greet.sh')),
@@ -182,7 +179,6 @@ ${NANO_SAVE} Then make it executable:
       title: 'Give your scripts a home',
       instruction:
         "Your own commands deserve a home of their own. By tradition it's a folder called `bin` (short for *binaries*, a traditional name for programs) inside your home folder. Create it and move the script there, dropping the `.sh`, because commands don't usually have endings:\n\n`$ mkdir -p ~/bin`\n\n`$ mv greet.sh ~/bin/greet`",
-      hint: 'Run the commands from your home folder, where `greet.sh` is. `cd` on its own takes you there.',
       solution: ['mkdir -p ~/bin', 'mv greet.sh ~/bin/greet'],
       explain: '`mkdir -p` creates the folder only if it is missing, without complaining. Moving a file keeps its permissions, so `greet` is still executable.',
       check: any(all(isFile('bin/greet'), isExecutable('bin/greet')), all(isFile('bin/greet.sh'), isExecutable('bin/greet.sh'))),
@@ -192,7 +188,6 @@ ${NANO_SAVE} Then make it executable:
       title: 'Run it from anywhere',
       instruction:
         'The shell only finds commands in the folders listed in `PATH`. Put your `bin` folder at the front of that list, go somewhere else, and run your command just by its name:\n\n`$ export PATH="$HOME/bin:$PATH"`\n\n`$ cd /tmp`\n\n`$ greet Ada`',
-      hint: 'Type the export line exactly, with the double quotes and the colon. It means: my bin folder, then everything that was in PATH before.',
       solution: ['export PATH="$HOME/bin:$PATH"', 'cd /tmp', 'greet Ada'],
       explain:
         "`greet` now works from any folder, just like `ls`. The `export` only lasts until this shell exits; to keep it, add the same line to the end of `~/.bashrc`. (On a real Ubuntu computer you may not even need that: the login settings in `~/.profile` add `~/bin` to PATH automatically whenever the folder exists, starting from your next login.)",
@@ -391,7 +386,6 @@ done
       title: 'Make a decision',
       instruction:
         'You can type an `if` straight at the prompt, with `;` instead of new lines. Is there a file called `notes.txt` in this folder?\n\n`$ if [ -f notes.txt ]; then echo "notes.txt is here"; else echo "No notes.txt"; fi`',
-      hint: 'Spaces matter: `[ -f notes.txt ]` needs a space after `[` and another before `]`.',
       solution: ['if [ -f notes.txt ]; then echo "notes.txt is here"; else echo "No notes.txt"; fi'],
       explain:
         "It found the file. Press <kbd>↑</kbd>, change `notes.txt` to a name that doesn't exist, and run it again to see the `else` branch. (If you press Enter before an `if` is finished, the shell shows a `>` prompt and waits for the rest.)",
@@ -446,7 +440,6 @@ done
 ${BACKUP}\`\`\`
 
 ${NANO_SAVE}`,
-      hint: 'The spaces at the start of some lines (the **indentation**) are optional: they only make the script easier to read. Everything else must be typed exactly.',
       solution: ['nano backup.sh', ...typeInNano(BACKUP, 'the script shown above')],
       explain:
         'Read it line by line: create the `backup` folder if it isn\'t there yet, set a counter to zero, then for each text file copy it, report it and add one to the counter. Finally, print the total.',
@@ -456,7 +449,6 @@ ${NANO_SAVE}`,
       id: 'run-backup',
       title: 'Run your backup',
       instruction: 'Make the script executable, run it, and look inside the backup folder:\n\n`$ chmod +x backup.sh`\n\n`$ ./backup.sh`\n\n`$ ls backup`',
-      hint: 'If it says *Permission denied*, the `chmod +x` is missing. If it complains about a line, open the script again with `nano backup.sh` and compare it with the lines in the previous step.',
       solution: ['chmod +x backup.sh', './backup.sh', 'ls backup'],
       explain:
         'Your first automation! Run it again: this time the `if` skips creating the folder and the copies are simply refreshed. With a few more lines you could put the date in the folder name, and the computer can even run a script like this on a schedule for you (look up *cron* when you are ready).',

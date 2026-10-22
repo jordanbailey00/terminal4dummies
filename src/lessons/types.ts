@@ -27,7 +27,6 @@ export interface Step {
   title: string;
   /** Markdown: what to do. Write commands as `$ ls -a` to make them clickable. */
   instruction: string;
-  hint?: string;
   /** What "Show me" types, and what the automated lesson test performs. */
   solution: SolutionAction[];
   /** Markdown shown after the step is completed. */
