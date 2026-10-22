@@ -10,7 +10,7 @@ import type { Terminal } from '@xterm/xterm';
 
 const KEY = 't4d.emulator.v1';
 
-const IDEAS = ['ls -la', 'cat welcome.txt', 'tree', 'man ls', 'cd Documents', 'grep -r milk .', 'history', 'sudo apt install cowsay', 'top', 'nano notes.txt', 'curl example.com', 'ssh webserver'];
+const IDEAS = ['ls -la', 'cat welcome.txt', 'man ls', 'cd Documents', 'grep -r milk .', 'history', 'sudo apt install cowsay', 'top', 'nano notes.txt', 'curl example.com', 'ssh webserver'];
 
 /** The terminal emulator on its own (the home page). */
 export function Emulator() {
