@@ -142,10 +142,11 @@ class Nano {
     }
     try {
       const text = fs.readFile(name);
-      const lines = text.split('\n');
-      if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
-      this.lines = lines.length ? lines.map((l) => l.replace(/\r$/, '')) : [''];
-      const n = text === '' ? 0 : text.endsWith('\n') ? lines.length : lines.length;
+      // like nano, the buffer ends with an empty line you can move onto
+      const lines = text.split('\n').map((l) => l.replace(/\r$/, ''));
+      if (lines[lines.length - 1] !== '') lines.push('');
+      this.lines = lines;
+      const n = lines.length - 1;
       this.setStatus(`Read ${n} line${n === 1 ? '' : 's'}`);
       if (!fs.canAccess(node, 2) && !this.viewOnly) this.setStatus(`File '${name}' is unwritable`);
     } catch (e) {
@@ -154,12 +155,13 @@ class Nano {
   }
 
   private write(name: string): boolean {
-    const text = this.lines.join('\n') + '\n';
+    this.keepLastLineEmpty();
+    const text = this.lines.join('\n');
     try {
       const node = this.ctx.fs.tryStat(name);
       if (node?.type === 'dir') throw new FsError('EISDIR', name);
       this.ctx.fs.writeFile(name, text);
-      const n = this.lines.length;
+      const n = this.lines.length - 1;
       this.setStatus(`Wrote ${n} line${n === 1 ? '' : 's'}`);
       this.filename = name;
       this.modified = false;
@@ -374,6 +376,11 @@ class Nano {
 
   private changed(): void {
     this.modified = true;
+  }
+
+  /** Typing on the empty last line gives it text, so a new empty line follows (saved files end in one newline). */
+  private keepLastLineEmpty(): void {
+    if (this.lines[this.lines.length - 1] !== '') this.lines.push('');
   }
 
   private guardView(): boolean {
@@ -767,6 +774,7 @@ class Nano {
         const k = await this.screen.readKey();
         const done = await this.handle(k);
         if (done) return;
+        this.keepLastLineEmpty();
         if (this.statusKeep > 0) this.statusKeep--;
         else this.status = null;
         await this.draw();

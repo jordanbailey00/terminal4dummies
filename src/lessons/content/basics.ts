@@ -1,7 +1,49 @@
 // Module 1: First steps.
 
-import { all, any, keyUsed, ran, lineMatches, interrupted } from '../checks';
-import type { Lesson } from '../types';
+import type { ExecEvent } from '../../shell/system';
+import { resolvePath } from '../../shell/vfs/path';
+import { abs, all, any, flagsOf, interrupted, keyUsed, lineMatches, operandsOf, outputIncludes, ran } from '../checks';
+import type { CheckContext, Lesson } from '../types';
+
+type Check = (c: CheckContext) => boolean;
+
+const base = (path: string | undefined) => path?.split('/').pop() ?? '';
+
+/** The arguments of a command that aren't options, as absolute paths. */
+function targets(e: ExecEvent): string[] {
+  return operandsOf(e).map((a) => resolvePath(e.cwd, a));
+}
+
+/**
+ * The last command listed the folder `path` with ls (named as an argument, or
+ * the folder ls ran in when it got none), with one option from each group:
+ * listsFolder('~/Desktop', ['l'], ['a', 'A']) needs -l, and -a or -A.
+ */
+function listsFolder(path: string, ...groups: string[][]): Check {
+  const want = abs(path);
+  return (c) =>
+    !!c.ev &&
+    c.ev.execs.some((e) => {
+      if (e.kind === 'not-found' || base(e.argv[0]) !== 'ls') return false;
+      const paths = targets(e);
+      if (paths.length === 0 ? e.cwd !== want : !paths.includes(want)) return false;
+      const flags = flagsOf(e);
+      return !flags.has('d') && groups.every((g) => g.some((f) => flags.has(f)));
+    });
+}
+
+/** The last command printed the file at `path` (with cat or a similar command). */
+function printed(path: string): Check {
+  const want = abs(path);
+  return (c) =>
+    !!c.ev && c.ev.execs.some((e) => e.kind !== 'not-found' && ['cat', 'less', 'more', 'head', 'tail'].includes(base(e.argv[0])) && targets(e).includes(want));
+}
+
+/** The last command repeats one from earlier in this question, brought back from the history with a key. */
+const recalled: Check = (c) =>
+  !!c.ev &&
+  (c.keys.includes('history-prev') || c.keys.includes('reverse-search')) &&
+  c.commands.slice(0, -1).some((p) => p.line.trim() === c.ev?.line.trim());
 
 export const welcome: Lesson = {
   id: 'welcome',
@@ -75,33 +117,43 @@ learner@sandbox:~$
   ],
   quiz: [
     {
+      kind: 'task',
+      prompt: 'Get the terminal to print the words `Good morning`.',
+      hint: 'The command you need prints back whatever words you type after it.',
+      solution: ['echo Good morning'],
+      explain: "`echo` prints the words that come after it. The word `echo` is the command itself, so it isn't printed, and plain words like these need no quotes.",
+      check: all(any(ran('echo'), ran('printf')), outputIncludes(/good\s+morning/i)),
+    },
+    {
+      kind: 'task',
+      prompt: 'Someone typed `Whoami` and got *command not found*. Run the command they meant.',
+      hint: 'Look closely at the first letter. To the shell, a capital letter makes it a different word.',
+      solution: ['whoami'],
+      explain:
+        "Commands are **case-sensitive**: the command is `whoami`, all in lowercase, so `Whoami` is a different name that doesn't exist. It answered with your user name, `learner`.",
+      check: ran('whoami'),
+    },
+    {
       prompt: 'In this prompt, which part tells you which folder you are in?\n\n```\nlearner@sandbox:~$\n```',
       options: ['`learner`', '`sandbox`', '`~`', '`$`'],
       answer: 2,
       explain: '`~` is short for your **home folder**, and this part of the prompt shows where you are. `learner` is your user name, `sandbox` is the computer, and `$` means the shell is ready.',
     },
     {
-      prompt: 'What does this command print?\n\n```\necho Good morning\n```',
-      options: ['`Good morning`', '`echo Good morning`', '`Good`', '`Good: command not found`'],
-      answer: 0,
-      explain: "`echo` prints back everything you type after it. The word `echo` is the command itself, so it isn't printed, and the words after it need no quotes.",
+      kind: 'task',
+      prompt: 'Find out what day and time it is, according to this computer.',
+      hint: 'Many commands are plain English words. This one is the word for a day on the calendar.',
+      solution: ['date'],
+      explain: '`date` prints the day, the date and the time. Like many commands, it does exactly what its name says.',
+      check: all(ran('date'), outputIncludes(/\d:\d\d/)),
     },
     {
-      prompt:
-        "Why did this happen?\n\n```\nlearner@sandbox:~$ Whoami\nCommand 'Whoami' not found, did you mean:\n  command 'whoami' from deb coreutils (9.4-3ubuntu6)\nTry: sudo apt install <deb name>\n```",
-      options: [
-        "`whoami` isn't installed yet, so you have to install it with `sudo apt install`",
-        "You aren't logged in, so the computer doesn't know who you are",
-        'Commands are case-sensitive: the command is `whoami`, all in lowercase',
-      ],
-      answer: 2,
-      explain: 'Commands are **case-sensitive**, so `Whoami` and `whoami` are different names, and only the lowercase one exists. The message is just suggesting that similar name; there is nothing to install.',
-    },
-    {
-      kind: 'command',
-      prompt: 'Type the command that shows which user you are logged in as.',
-      accept: ['whoami'],
-      explain: '`whoami` answers with your user name, `learner`: the same name you see at the start of the prompt.',
+      kind: 'task',
+      prompt: 'The screen is getting crowded. Wipe it, so that only a fresh prompt is left at the top.',
+      hint: 'There is a command for this, named after what it does to the screen. A keyboard shortcut works too.',
+      solution: ['clear'],
+      explain: '`clear` wipes the screen, and so does <kbd>Ctrl</kbd>+<kbd>L</kbd>. Nothing is lost: the shell still remembers the commands you ran.',
+      check: any(ran('clear'), keyUsed('clear-screen')),
     },
   ],
   recap: `
@@ -202,17 +254,43 @@ Words are separated by **spaces**, so \`ls -l\` and \`ls-l\` are completely diff
       check: all(ran('ls'), lineMatches(/--help/)),
     },
   ],
+  quizSetup: (env) => {
+    env.file('Desktop/.reminder.txt', 'Water the plants on Friday.\n', { daysAgo: 2 });
+  },
   quiz: [
     {
-      prompt: 'What does `ls -a Pictures` do?',
-      options: [
-        'Lists everything in the `Pictures` folder, hidden files included',
-        'Moves you into the `Pictures` folder and lists it',
-        'Shows a long listing, with details, of the `Pictures` folder',
-        'Lists the folder you are in, then the `Pictures` folder',
-      ],
-      answer: 0,
-      explain: 'The option `-a` changes *how* `ls` lists (hidden files too), and the argument `Pictures` says *what* to list. `ls` only looks; it never moves you anywhere.',
+      kind: 'task',
+      prompt: 'Show a long listing of the `Downloads` folder: one file per line, with sizes and dates.',
+      hint: "Start with the command that lists files, add the option for a *long* listing, and end with the folder's name.",
+      solution: ['ls -l Downloads'],
+      explain: '`-l` is an **option**: it changes *how* `ls` lists. `Downloads` is an **argument**: it tells `ls` *what* to list.',
+      check: listsFolder('~/Downloads', ['l']),
+    },
+    {
+      kind: 'task',
+      prompt: "`Desktop` looks empty, but it isn't. Show a long listing of `Desktop` that includes the hidden files.",
+      hint: 'You need two options at once: the one for a long listing and the one for *all* files. Short options can share a single dash.',
+      solution: ['ls -la Desktop'],
+      explain:
+        'Short options can be glued together after one dash, in any order: `ls -la Desktop`, `ls -al Desktop` and `ls -l -a Desktop` all do the same. The hidden file is `.reminder.txt`: names that start with a dot are hidden from a plain `ls`.',
+      check: listsFolder('~/Desktop', ['l'], ['a', 'A']),
+    },
+    {
+      kind: 'task',
+      prompt: '`-a` also has a long name: a whole word, written after two dashes. Show the hidden files in `Desktop` again, using that long name instead of `-a`.',
+      hint: 'Long options start with `--`. Which word is `-a` short for?',
+      solution: ['ls --all Desktop'],
+      explain:
+        '`--all` is the long name of `-a`: easier to read, while `-a` is quicker to type. Careful with the dashes: with only one, `-all` means `-a -l -l`.',
+      check: listsFolder('~/Desktop', ['--all', '--almost-all']),
+    },
+    {
+      kind: 'task',
+      prompt: '`mkdir` is a command that makes folders. Without making a folder, get `mkdir` to describe all of its options.',
+      hint: 'The long option you used with `ls` at the end of the lesson works for almost every command.',
+      solution: ['mkdir --help'],
+      explain: '`--help` makes almost any command describe itself and its options instead of doing its usual job. It is the quickest way to look up an option you have forgotten.',
+      check: any(ran('mkdir', { args: ['--help'] }), ran('man', { args: ['mkdir'] })),
     },
     {
       prompt: 'Why did this error happen?\n\n```\nlearner@sandbox:~$ ls-l\nls-l: command not found\n```',
@@ -224,26 +302,6 @@ Words are separated by **spaces**, so \`ls -l\` and \`ls-l\` are completely diff
       ],
       answer: 3,
       explain: "The shell splits a line into words at the spaces, and the first word is the command. Without the space, `ls-l` is a single word: the name of a command that doesn't exist.",
-    },
-    {
-      prompt: 'Which command does exactly the same as `ls -a`?',
-      options: ['`ls -all`', '`ls --all`', '`ls all`'],
-      answer: 1,
-      explain: 'Long options are whole words after **two** dashes, and `--all` is the long name of `-a`. With one dash, `-all` means `-a -l -l` (a long listing with hidden files), and `ls all` looks for a file called `all`.',
-    },
-    {
-      kind: 'command',
-      prompt: 'Type a command that shows a long listing of the current folder, hidden files included.',
-      accept: [
-        'ls -la',
-        'ls -al',
-        'ls -l -a',
-        'ls -a -l',
-        'ls -l --all',
-        'ls --all -l',
-        /^ls(?=.* -[a-zA-Z]*l)(?=.*(?: -[a-zA-Z]*[aA]| --all(?: |$)| --almost-all(?: |$)))(?: (?:-[laAh]+|--all|--almost-all))+(?: \.\/?)?$/,
-      ],
-      explain: 'Short options can be glued together after one dash, in any order: `ls -la`, `ls -al` and `ls -l -a` all mean the same thing.',
     },
   ],
   recap: `
@@ -334,37 +392,60 @@ Experienced terminal users type surprisingly little. A handful of keyboard short
       check: ran('history'),
     },
   ],
+  quizSetup: (env) => {
+    env.file('packing-list-summer.txt', 'Sunscreen\nSandals\nA good book\n', { daysAgo: 1 });
+    env.file('packing-list-winter.txt', 'Gloves\nWool hat\nA good book\n', { daysAgo: 1 });
+  },
   quiz: [
     {
-      prompt: "`sleep 100` is running, and you don't want to wait. Which keys end it right away?",
-      options: ['<kbd>Ctrl</kbd>+<kbd>Z</kbd>', '<kbd>Ctrl</kbd>+<kbd>L</kbd>', '<kbd>Ctrl</kbd>+<kbd>C</kbd>', '<kbd>Cmd</kbd>+<kbd>C</kbd> on a Mac'],
-      answer: 2,
+      kind: 'task',
+      prompt: '`sleep` waits for as many seconds as you tell it to. Start a wait of ten minutes, then end it early instead of waiting.',
+      hint: 'Ten minutes is 600 seconds. While it runs, hold <kbd>Ctrl</kbd> and press the letter that stands for *cancel*.',
+      solution: ['sleep 600', { keys: '\x03', label: 'Press Ctrl+C', delay: 600 }],
       explain:
-        "<kbd>Ctrl</kbd>+<kbd>C</kbd> interrupts the running command; on a Mac it's the Control key too, since <kbd>Cmd</kbd>+<kbd>C</kbd> copies text. <kbd>Ctrl</kbd>+<kbd>L</kbd> only clears the screen, and <kbd>Ctrl</kbd>+<kbd>Z</kbd> just pauses the command instead of ending it.",
+        '<kbd>Ctrl</kbd>+<kbd>C</kbd> interrupts the command that is running, and the prompt comes right back. On a Mac it is the Control key too: <kbd>Cmd</kbd>+<kbd>C</kbd> copies text.',
+      check: all(ran('sleep'), interrupted()),
     },
     {
-      prompt: '`Desktop`, `Documents` and `Downloads` all start with `D`. You type `cd D` and press <kbd>Tab</kbd>, but nothing seems to happen. What now?',
-      options: [
-        'Press <kbd>Enter</kbd>: the shell picks the first match',
-        'Press <kbd>Tab</kbd> again to see all the names that match',
-        'Press <kbd>↓</kbd> to step through the matching names',
-        'Press <kbd>Ctrl</kbd>+<kbd>R</kbd> to search for the folder',
+      kind: 'task',
+      prompt: "Find out what time it is. Then run that same command a second time, but don't type it again: bring it back with a key.",
+      hint: 'One of the arrow keys walks back through the commands you have run.',
+      solution: ['date', { keys: '\x1b[A', label: 'Press ↑' }, { keys: '\r', label: 'Press Enter' }],
+      explain:
+        '<kbd>↑</kbd> brings back the commands you ran before, one at a time, and <kbd>↓</kbd> walks forward again. You can change a recalled command before you press <kbd>Enter</kbd>.',
+      check: recalled,
+    },
+    {
+      kind: 'task',
+      prompt: 'Two files in your home folder have names that start with `packing-list`. Print the one for winter, and let <kbd>Tab</kbd> do most of the typing.',
+      hint: '`cat` prints a file. After `cat`, type the start of the name and press <kbd>Tab</kbd>. When it stops, add a letter and press <kbd>Tab</kbd> again.',
+      solution: [
+        { keys: 'cat pa', label: 'Type cat pa' },
+        { keys: '\t', label: 'Press Tab' },
+        { keys: 'w', label: 'Type w' },
+        { keys: '\t', label: 'Press Tab' },
+        { keys: '\r', label: 'Press Enter' },
       ],
-      answer: 1,
-      explain: 'When several names match, a second <kbd>Tab</kbd> lists them all, and after a few more letters (`cd Doc`) <kbd>Tab</kbd> can finish the name. <kbd>↓</kbd> and <kbd>Ctrl</kbd>+<kbd>R</kbd> work on your command history, not on file names.',
+      explain:
+        '<kbd>Tab</kbd> fills in as much of a name as it can. When several names fit, it stops where they differ, and pressing <kbd>Tab</kbd> twice lists them all.',
+      check: all(keyUsed('tab-complete'), printed('~/packing-list-winter.txt')),
     },
     {
-      prompt: 'Which key brings back the command you ran last, so you can run it again or change it first?',
-      options: ['<kbd>↑</kbd>', '<kbd>Tab</kbd>', '<kbd>↓</kbd>', '<kbd>Ctrl</kbd>+<kbd>L</kbd>'],
-      answer: 0,
-      explain: "<kbd>↑</kbd> steps back through the commands you've run, and <kbd>↓</kbd> steps forward again. You can edit a recalled command before you press <kbd>Enter</kbd>.",
-    },
-    {
-      kind: 'command',
       prompt:
-        'Here is your history. Type the shortcut that runs `cat welcome.txt` again, using its number.\n\n```\nlearner@sandbox:~$ history\n    1  echo I love shortcuts\n    2  cat welcome.txt\n    3  sleep 100\n    4  history\n```',
-      accept: ['!2'],
-      explain: '`!` followed by a number runs that command from your history again, so `!2` runs `cat welcome.txt`. `!!` would repeat the most recent command instead.',
+        'Here is your history. Which of these runs `cat welcome.txt` again?\n\n```\nlearner@sandbox:~$ history\n    1  echo I love shortcuts\n    2  cat welcome.txt\n    3  sleep 100\n    4  history\n```',
+      options: ['`!2`', '`!!`', '`history 2`', 'Press <kbd>↑</kbd> twice, then <kbd>Enter</kbd>'],
+      answer: 0,
+      explain:
+        '`!` followed by a number runs that command from your history again, so `!2` runs `cat welcome.txt`. `!!` repeats the most recent command (`history`), `history 2` only shows the last two lines of the list, and <kbd>↑</kbd> twice brings back `sleep 100`.',
+    },
+    {
+      kind: 'task',
+      prompt: 'Clear the screen with a keyboard shortcut, without typing any command.',
+      hint: 'Hold <kbd>Ctrl</kbd> and press one letter. The table at the top of this lesson lists it.',
+      solution: [{ keys: '\x0c', label: 'Press Ctrl+L' }],
+      explain:
+        '<kbd>Ctrl</kbd>+<kbd>L</kbd> does the same job as the `clear` command, and it even works halfway through typing a line: what you have typed so far stays put.',
+      check: keyUsed('clear-screen'),
     },
   ],
   recap: `

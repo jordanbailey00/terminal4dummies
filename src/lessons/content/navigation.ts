@@ -1,7 +1,39 @@
 // Module 2: Finding your way around.
 
-import { all, cwdIs, ran } from '../checks';
-import type { Lesson } from '../types';
+import type { ExecEvent } from '../../shell/system';
+import { resolvePath } from '../../shell/vfs/path';
+import { abs, all, any, cwdIs, flagsOf, not, operandsOf, ran } from '../checks';
+import type { CheckContext, Lesson } from '../types';
+
+type Check = (c: CheckContext) => boolean;
+
+const base = (path: string | undefined) => path?.split('/').pop() ?? '';
+
+/** Options of an ls command, with the spelled-out sort orders counted as -S and -t. */
+function lsFlags(e: ExecEvent): Set<string> {
+  const flags = flagsOf(e);
+  if (e.argv.includes('--sort=size')) flags.add('S');
+  if (e.argv.includes('--sort=time')) flags.add('t');
+  return flags;
+}
+
+/**
+ * The last command listed the folder `path` with ls (named as an argument, or
+ * the folder ls ran in when it got none), with one option from each group:
+ * listsFolder('~/shed', ['l'], ['a', 'A']) needs -l, and -a or -A.
+ */
+function listsFolder(path: string, ...groups: string[][]): Check {
+  const want = abs(path);
+  return (c) =>
+    !!c.ev &&
+    c.ev.execs.some((e) => {
+      if (e.kind === 'not-found' || base(e.argv[0]) !== 'ls') return false;
+      const paths = operandsOf(e).map((a) => resolvePath(e.cwd, a));
+      if (paths.length === 0 ? e.cwd !== want : !paths.includes(want)) return false;
+      const flags = lsFlags(e);
+      return !flags.has('d') && groups.every((g) => g.some((f) => flags.has(f)));
+    });
+}
 
 export const whereAmI: Lesson = {
   id: 'where-am-i',
@@ -72,30 +104,51 @@ At every moment the shell is "standing" in one folder, called the **current work
       check: ran('ls', { args: [/(^|\/)Documents\/recipes\/?$/] }),
     },
   ],
+  quizSetup: (env) => {
+    env.file('Documents/recipes/desserts/brownies.txt', 'Brownies\n\n200 g dark chocolate\n150 g butter\n3 eggs\n', { daysAgo: 4 });
+    env.file('Documents/recipes/desserts/apple-pie.txt', 'Apple pie\n\n6 apples\n1 pie crust\nA pinch of cinnamon\n', { daysAgo: 4 });
+  },
+  quizStartDir: 'Documents',
   quiz: [
     {
-      prompt: 'What does `pwd` show?',
-      options: ['Your password', 'The files in the current folder', 'The folder you are in right now', 'Your user name'],
-      answer: 2,
-      explain: "`pwd` stands for *print working directory*: it prints the full path of the folder you're in, such as `/home/learner`. Files are listed by `ls`, and your user name comes from `whoami`.",
+      kind: 'task',
+      prompt: "Print the full path of the folder you're in right now.",
+      hint: 'The shell calls the folder you are in the *working directory*, and a three-letter command prints it.',
+      solution: ['pwd'],
+      explain:
+        '`pwd` prints the full path of the folder you are in: here, `/home/learner/Documents`, the `Documents` folder inside your home folder. The prompt shows the same place in short, as `~/Documents`.',
+      check: any(ran('pwd'), (c) => !!c.ev && c.ev.execs.some((e) => e.argv[0] === 'echo' && e.argv.slice(1).join(' ') === e.cwd)),
+    },
+    {
+      kind: 'task',
+      prompt: 'Without leaving this folder, list what is in your home folder.',
+      hint: 'Give `ls` the path of your home folder. It has a one-character nickname, too.',
+      solution: ['ls ~'],
+      explain: '`~` is short for your home folder, `/home/learner`, so `ls ~` and `ls /home/learner` show the same thing from wherever you are.',
+      check: listsFolder('~'),
     },
     {
       prompt: 'What is the very top of the Linux folder tree called, and how is it written?',
-      options: ['The root, written `/`', 'The home folder, written `~`', 'The C: drive, written `C:\\`', 'The root, written `\\`'],
-      answer: 0,
+      options: ['The home folder, written `~`', 'The root, written `/`', 'The C: drive, written `C:\\`', 'The root, written `\\`'],
+      answer: 1,
       explain: 'Everything on Linux lives somewhere inside the **root**, `/`. There are no drive letters like `C:`, and paths use forward slashes, not backslashes.',
     },
     {
-      prompt: 'The prompt shows `learner@sandbox:~$`. What is the full path of the folder you are in?',
-      options: ['`/`', '`/home`', '`/learner`', '`/home/learner`'],
-      answer: 3,
-      explain: '`~` is short for your home folder, `/home/learner`: the `learner` folder inside `home`, which is inside the root. `/home` holds one such folder for each user.',
+      kind: 'task',
+      prompt: 'System settings live in a folder called `etc`, right below the root. List what is in it.',
+      hint: 'A path that starts at the root begins with a `/`.',
+      solution: ['ls /etc'],
+      explain: '`/etc` is an **absolute path**: it starts at the root, so it works from any folder. The files in it hold the settings of the whole system.',
+      check: listsFolder('/etc'),
     },
     {
-      kind: 'command',
-      prompt: "You're in your home folder. Without moving, list what's inside the `recipes` folder, which is inside `Documents`.",
-      accept: ['ls Documents/recipes', /^ls (?:-[lahtrS1]+ )?(?:\.\/|~\/|\/home\/learner\/)?Documents\/recipes\/?$/],
-      explain: '`Documents/recipes` means *the recipes folder inside the Documents folder*. Give `ls` a path, and it shows you what is inside without you going there.',
+      kind: 'task',
+      prompt: 'The folder you are in contains `recipes`, and `recipes` contains a folder called `desserts`. Without moving, list what is in `desserts`.',
+      hint: 'A path can go through several folders, with a `/` between each one and the next.',
+      solution: ['ls recipes/desserts'],
+      explain:
+        '`recipes/desserts` is a **relative path**: it starts from the folder you are in, so from here it means `/home/learner/Documents/recipes/desserts`.',
+      check: listsFolder('~/Documents/recipes/desserts'),
     },
   ],
   recap: `
@@ -191,30 +244,50 @@ A few special names save typing:
       check: all(ran('cd', { args: ['-'] }), cwdIs('/var/log')),
     },
   ],
+  quizSetup: (env) => {
+    env.file('Music/jazz/1959/kind-of-blue.txt', 'Kind of Blue, by Miles Davis (1959)\n', { daysAgo: 6 });
+    env.file('Music/jazz/1965/a-love-supreme.txt', 'A Love Supreme, by John Coltrane (1965)\n', { daysAgo: 6 });
+  },
+  quizStartDir: 'Music/jazz/1959',
   quiz: [
     {
-      prompt: 'Which command takes you up one level, to the parent folder?',
-      options: ['`cd..`', '`cd -`', '`cd /`', '`cd ..`'],
-      answer: 3,
-      explain: "`..` means the parent folder, and it needs a space after `cd`: `cd..` is a command that doesn't exist. `cd -` goes back to the *previous* folder, and `cd /` jumps to the root.",
-    },
-    {
-      prompt: 'You are in `/home/learner/Documents/recipes`. Where does `cd ../..` take you?',
-      options: ['`/home/learner/Documents`', '`/home/learner`', '`/home`', '`/`'],
-      answer: 1,
-      explain: 'Each `..` climbs one level: the first takes you up to `Documents`, and the second up to `/home/learner`, your home folder.',
+      kind: 'task',
+      prompt: 'You are in `1959`, a folder inside `jazz`, which is inside `Music`. Climb two levels up, to `Music`.',
+      hint: '`..` means the folder above, and you can put two of them in one path, with a `/` in between.',
+      solution: ['cd ../..'],
+      explain: 'Each `..` climbs one level: from `1959` up to `jazz`, then up to `Music`. `cd ../..` does both at once, and running `cd ..` twice gets you there too.',
+      check: cwdIs('~/Music'),
     },
     {
       prompt: 'Which of these is an **absolute** path?',
-      options: ['`Documents/recipes`', '`../Pictures`', '`/var/log`', '`recipes`'],
-      answer: 2,
+      options: ['`Documents/recipes`', '`../Pictures`', '`recipes`', '`/var/log`'],
+      answer: 3,
       explain: "An absolute path starts at the root, so it begins with `/` and works from anywhere. The others are **relative**: they start from the folder you're in now.",
     },
     {
-      kind: 'command',
-      prompt: "You've been exploring the system folders. Type a command that takes you straight back to your home folder.",
-      accept: ['cd', 'cd ~', 'cd ~/', 'cd /home/learner', 'cd /home/learner/', 'cd ~learner', 'cd $HOME', 'cd "$HOME"'],
-      explain: '`cd` on its own always takes you home, and so does `cd ~`. The absolute path works too: `cd /home/learner`.',
+      kind: 'task',
+      prompt: 'Jump to the folder `apt`, which is inside `etc`, right below the root.',
+      hint: 'Start the path at the root, so that it works from anywhere.',
+      solution: ['cd /etc/apt'],
+      explain:
+        '`/etc/apt` is an **absolute path**: it starts at the root, so it takes you to the same place no matter where you are. This is where `apt`, the program that installs software, keeps its settings.',
+      check: cwdIs('/etc/apt'),
+    },
+    {
+      kind: 'task',
+      prompt: 'Head straight back to your home folder.',
+      hint: 'Your home folder has a one-character nickname, and `cd` knows it.',
+      solution: ['cd'],
+      explain: '`cd` on its own always takes you home, and so do `cd ~` and `cd /home/learner`.',
+      check: cwdIs('~'),
+    },
+    {
+      kind: 'task',
+      prompt: 'Go back to the folder you were in just before, without typing its name.',
+      hint: '`cd` has a special argument that works like the Back button of a web browser.',
+      solution: ['cd -'],
+      explain: '`cd -` takes you back to the previous folder and prints where you landed. Run it again and you are back where you started: it switches between the last two folders.',
+      check: (c) => !!c.ev && c.ev.status === 0 && c.ev.execs.some((e) => e.argv[0] === 'cd' && (e.argv[1] === '-' || /OLDPWD/.test(c.ev?.line ?? ''))),
     },
   ],
   recap: `
@@ -315,31 +388,53 @@ Don't worry about permissions yet. They get a whole lesson later.
       check: ran('ls', { flags: 'lt' }),
     },
   ],
+  quizSetup: (env) => {
+    env.file('shed/.spare-key.txt', 'The spare key is under the blue flower pot.\n', { daysAgo: 5 });
+    env.file('shed/lawnmower-manual.txt', 'Lawnmower manual\n'.repeat(1500), { daysAgo: 400 });
+    env.file('shed/bike-repair.txt', 'Patch the back tire.\nOil the chain.\nPump up both tires.\n', { daysAgo: 45 });
+    env.file('shed/paint-colors.txt', 'Fence: forest green\nDoor: sunny yellow\n', { daysAgo: 2 });
+    env.dir('shed/toolbox');
+  },
+  quizStartDir: 'shed',
   quiz: [
     {
-      prompt:
-        "This folder also contains a file called `.hidden-treasure.txt`, but `ls` doesn't show it. Why?\n\n```\nlearner@sandbox:~/garden$ ls\nroses.txt  seed-catalog.txt  tomatoes.txt  tools  watering-schedule.txt\n```",
-      options: ["Its name starts with a dot, so it's hidden; `ls -a` shows it", "It's empty, and `ls` skips empty files", 'It belongs to another user'],
-      answer: 0,
-      explain: 'Names that start with a dot are **hidden** from a plain `ls`, which keeps settings files out of the way. `ls -a` shows everything, hidden files included.',
+      kind: 'task',
+      prompt: 'Something in this folder, `shed`, is hidden. Show every file in it, including the hidden ones.',
+      hint: 'Hidden files have names that start with a dot. One option makes `ls` show *all* files.',
+      solution: ['ls -a'],
+      explain: '`ls -a` (*all*) also shows the names that start with a dot, like `.spare-key.txt`, plus `.` (this folder) and `..` (the folder above). `ls -A` does the same without those two.',
+      check: listsFolder('~/shed', ['a', 'A']),
+    },
+    {
+      kind: 'task',
+      prompt: 'Show a long listing of this folder with sizes that are easy to read, like `25K`, instead of a long number of bytes.',
+      hint: 'Add the *human-readable* option to the long listing.',
+      solution: ['ls -lh'],
+      explain: '`-h` (*human-readable*) writes sizes with K, M or G, so the manual shows up as about 25 kilobytes. It only changes how the sizes are written, not the order.',
+      check: listsFolder('~/shed', ['l'], ['h']),
     },
     {
       prompt: 'In this line from `ls -l`, what does `7800` tell you?\n\n```\n-rw-rw-r-- 1 learner learner 7800 Apr  4  2026 seed-catalog.txt\n```',
-      options: ['The file has 7800 lines', 'The file is 7800 kilobytes', 'The file is 7800 bytes'],
-      answer: 2,
+      options: ['The file has 7800 lines', 'The file is 7800 bytes', 'The file is 7800 kilobytes'],
+      answer: 1,
       explain: 'The number just before the date is the size in **bytes**. `ls -lh` would show the same size as `7.7K`.',
     },
     {
-      prompt: 'Which command lists the files with the **largest** first?',
-      options: ['`ls -lh`', '`ls -lt`', '`ls -ls`', '`ls -lS`'],
-      answer: 3,
-      explain: "`-S` (a capital S) sorts by size, largest first. `-h` only changes how sizes are *shown*, `-t` sorts by time, and lowercase `-s` is a different option that doesn't sort.",
+      kind: 'task',
+      prompt: 'List this folder with the largest file first.',
+      hint: 'One option sorts by size. It is a capital letter.',
+      solution: ['ls -lS'],
+      explain: '`-S` (a capital S) sorts by size, largest first. With `-l` you see the sizes too, so you can check the order.',
+      // -r would put the smallest first
+      check: all(listsFolder('~/shed', ['S']), not(listsFolder('~/shed', ['r']))),
     },
     {
-      kind: 'command',
-      prompt: 'Type a command that shows a long listing with the **oldest** files first and the newest at the bottom.',
-      accept: ['ls -ltr', /^ls(?=.* -[a-zA-Z]*l)(?=.* -[a-zA-Z]*t)(?=.*(?: -[a-zA-Z]*r| --reverse(?: |$)))(?: (?:-[ltrhaA]+|--reverse))+$/],
-      explain: '`-t` sorts by time, newest first, and `-r` reverses any sort order. Add `-l` for the long listing and you get `ls -ltr` (the letters can go in any order).',
+      kind: 'task',
+      prompt: 'Show a long listing of this folder with the oldest file at the top and the newest at the bottom.',
+      hint: 'Sorting by time puts the newest first. Then add the option that reverses any order.',
+      solution: ['ls -ltr'],
+      explain: '`-t` sorts by modification time, newest first, and `-r` reverses the order, so the oldest comes first. The letters can go in any order: `ls -ltr` and `ls -rtl` are the same.',
+      check: listsFolder('~/shed', ['l'], ['t'], ['r']),
     },
   ],
   recap: `

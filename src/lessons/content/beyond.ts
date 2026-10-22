@@ -1,7 +1,26 @@
 // Module: Beyond this computer.
 
-import { ran } from '../checks';
-import type { Lesson } from '../types';
+import { all, any, isFile, lineMatches, missing, outputIncludes, ran } from '../checks';
+import type { CheckContext, Lesson } from '../types';
+
+function command(argv: string[]): string {
+  return argv[0]?.split('/').pop() ?? '';
+}
+
+/**
+ * Before the first `rm` of .log files, `ls` (or echo/printf) showed the .log
+ * files that a wildcard matched (expanded names, not an unmatched pattern).
+ */
+function lookedBeforeDeleting(c: CheckContext): boolean {
+  const execs = c.commands.flatMap((ev) => ev.execs);
+  const firstRm = execs.findIndex((e) => command(e.argv) === 'rm' && e.argv.slice(1).some((a) => /\.log$/.test(a)));
+  return (
+    firstRm > 0 &&
+    execs
+      .slice(0, firstRm)
+      .some((e) => ['ls', 'echo', 'printf'].includes(command(e.argv)) && e.status === 0 && e.argv.slice(1).some((a) => /\.log$/.test(a) && !a.includes('*')))
+  );
+}
 
 export const realTerminal: Lesson = {
   id: 'real-terminal',
@@ -10,7 +29,7 @@ export const realTerminal: Lesson = {
   moduleId: 'beyond',
   minutes: 7,
   intro: `
-Everything you practised here works on real computers. This last lesson helps you make the jump.
+Everything you practiced here works on real computers. This last lesson helps you make the jump.
 
 ## Opening a terminal
 
@@ -27,7 +46,7 @@ Everything you practised here works on real computers. This last lesson helps yo
 
 - The shell is **zsh**. Your settings go in \`~/.zshrc\` instead of \`~/.bashrc\`. Almost every command and shortcut is the same.
 - Home folders live in \`/Users\`, not \`/home\`.
-- Many tools are the BSD versions, with slightly different options: \`ls -G\` for colours, \`sed -i ''\` for in-place edits.
+- Many tools are the BSD versions, with slightly different options: \`ls -G\` for colors, \`sed -i ''\` for in-place edits.
 - There is no \`apt\`. Install **Homebrew** from brew.sh and use \`brew install NAME\`.
 
 ## Habits that will serve you well
@@ -79,52 +98,71 @@ Everything you practised here works on real computers. This last lesson helps yo
       check: (c) => !!c.ev && /^\s*exit\b/.test(c.ev.line),
     },
   ],
+  quizSetup: (env) => {
+    env.file('logs/app.log', '2026-09-30 08:00:01 app started\n2026-09-30 08:00:02 listening on port 8080\n', { daysAgo: 21 });
+    env.file('logs/error.log', '2026-10-02 14:12:09 could not reach the database, retrying\n', { daysAgo: 19 });
+    env.file('logs/debug.log', '2026-10-03 09:30:00 cache warmed up in 120 ms\n', { daysAgo: 18 });
+    env.file('logs/summary.txt', 'September: 2 errors, both fixed.\n', { daysAgo: 20 });
+    env.file('logs/README.txt', 'Old logs from the test server. Keep this file and the summary.\n', { daysAgo: 30 });
+  },
   quiz: [
+    {
+      kind: 'task',
+      prompt: 'Find out which shell this computer starts for you by default.',
+      hint: 'An environment variable, named after the thing you are looking for, holds it.',
+      solution: ['echo $SHELL'],
+      explain: '`$SHELL` holds the path of your default shell: here `/bin/bash`. On a Mac, the same command prints `/bin/zsh`.',
+      check: all(outputIncludes(/(^|[\s:="'])\/(usr\/)?bin\/bash\b/m), lineMatches(/SHELL|passwd/)),
+    },
     {
       prompt: 'Which of these is true on a Mac?',
       options: [
+        'The default shell is zsh, and its settings go in `~/.zshrc`',
         'You install software with `sudo apt install NAME`',
         '`uname` prints `Linux`, just like on Ubuntu',
         'Home folders live in `/home`, as on Linux',
-        'The default shell is zsh, and its settings go in `~/.zshrc`',
       ],
-      answer: 3,
+      answer: 0,
       explain:
         'Macs use zsh, so your aliases and settings go in `~/.zshrc` instead of `~/.bashrc`. There is no `apt` (install Homebrew and use `brew install NAME`), home folders are in `/Users`, and `uname` says `Darwin`.',
     },
     {
+      kind: 'task',
+      prompt: 'Find out which Linux distribution this computer runs, and which version of it.',
+      hint: 'Linux keeps a description of the installed system in a small text file in `/etc`.',
+      solution: ['cat /etc/os-release'],
+      explain:
+        '`/etc/os-release` describes the installed system: here Ubuntu 24.04. You will often need that when following installation instructions. (`lsb_release -a` tells you the same thing.)',
+      check: any(
+        all(outputIncludes(/ubuntu/i), outputIncludes('24.04')),
+        // a pager or editor shows the file on a screen of its own, so its output isn't captured
+        ...['less', 'more', 'nano'].map((viewer) => ran(viewer, { status: 0, args: [/(os|lsb)-release$|^\/etc\/issue$/] })),
+      ),
+    },
+    {
       prompt: 'What is the recommended way to get the kind of terminal you used in this course on a Windows PC?',
       options: [
-        'Install WSL with `wsl --install`, which gives you a real Ubuntu with bash',
         'Use PowerShell, which understands exactly the same commands as bash',
         'Install Homebrew from brew.sh, then run `brew install bash`',
+        'Install WSL with `wsl --install`, which gives you a real Ubuntu with bash',
       ],
-      answer: 0,
+      answer: 2,
       explain:
         'WSL runs a real Ubuntu inside Windows, with bash, apt and the commands you learned here. PowerShell is a different language (even though it has a few aliases, such as `ls`), and Homebrew is how you install software on a Mac.',
     },
     {
-      kind: 'command',
-      prompt: 'Type the command that shows which Linux distribution, and which version of it, a computer is running.',
-      accept: [
-        'cat /etc/os-release',
-        /^(cat|less|more|head) \/(etc|usr\/lib)\/os-release$/,
-        /^(cat|less|more|head) \/etc\/lsb-release$/,
-        /^cat \/etc\/\*-?release$/,
-        'lsb_release -a',
-        'hostnamectl',
-      ],
-      explain: '`/etc/os-release` is a small text file in which Linux describes the installed system, including the name and version of the distribution. You will often need that when following installation instructions.',
-    },
-    {
-      prompt: 'On your own computer, you are about to run `rm *.log`. Which habit protects you from deleting the wrong files?',
-      options: [
-        'Put `sudo` in front, so that it cannot fail halfway through',
-        'Run `ls *.log` first, to see exactly which files the wildcard matches',
-        'Run it from your home folder, where nothing important is kept',
-      ],
-      answer: 1,
-      explain: 'The same wildcard matches the same files, so `ls *.log` shows exactly what `rm *.log` would delete, and `rm` has no undo. `sudo` only makes a mistake bigger: use it only when a command really needs it.',
+      kind: 'task',
+      prompt: 'The folder `logs` in your home folder is full of old `.log` files. Delete all of them, and nothing else, but first check exactly which files your wildcard matches.',
+      hint: 'Show the matching files with `ls` first, then hand the very same wildcard to `rm`.',
+      solution: ['ls logs/*.log', 'rm logs/*.log'],
+      explain:
+        'The same wildcard matches the same files, so `ls` showed you exactly what `rm` was about to delete, and `rm` has no undo. `README.txt` and `summary.txt` were safe, because their names don\'t end in `.log`.',
+      check: all(
+        ...['app.log', 'error.log', 'debug.log'].map((f) => missing(`logs/${f}`)),
+        isFile('logs/summary.txt'),
+        isFile('logs/README.txt'),
+        lookedBeforeDeleting,
+      ),
     },
   ],
   recap: `

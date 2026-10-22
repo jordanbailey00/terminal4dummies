@@ -1,7 +1,8 @@
 // Module 4: Reading and writing.
 
+import type { ExecEvent } from '../../shell/system';
 import { ROOT_CREDS } from '../../shell/vfs/fs';
-import { all, any, everRan, fileContains, fileLineCount, fileText, flagsOf, not, ran } from '../checks';
+import { all, any, everRan, fileContains, fileLineCount, fileText, flagsOf, not, outputIncludes, ran } from '../checks';
 import type { CheckContext, Lesson, LessonSetupEnv } from '../types';
 
 type Check = (c: CheckContext) => boolean;
@@ -34,6 +35,26 @@ function everLine(re: RegExp): Check {
 function linesOf(c: CheckContext, path: string): string[] | null {
   const t = fileText(c, path);
   return t === null ? null : t.split('\n').map((l) => l.trim()).filter(Boolean);
+}
+
+/** The last command printed every one of `want` and none of `unwanted`. */
+function showsOnly(c: CheckContext, want: string[], unwanted: string[]): boolean {
+  if (!c.ev) return false;
+  const out = c.ev.output;
+  return want.every((l) => out.includes(l)) && !unwanted.some((l) => out.includes(l));
+}
+
+/** Two lists of lines are the same, ignoring extra spaces. */
+function sameLines(a: string[] | null, b: string[]): boolean {
+  const norm = (l: string) => l.replace(/\s+/g, ' ').trim();
+  return !!a && a.length === b.length && a.every((l, i) => norm(l) === norm(b[i]));
+}
+
+/** A command that counts lines, or shows line numbers. */
+function countsLines(e: ExecEvent): boolean {
+  const cmd = base(e.argv[0]);
+  const f = flagsOf(e);
+  return cmd === 'wc' || cmd === 'nl' || (cmd === 'grep' && f.has('c')) || (cmd === 'cat' && (f.has('n') || f.has('b')));
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +102,56 @@ function captainsLog(): string {
   }
   return lines.join('\n') + '\n';
 }
+
+/** The quiz's loans log: one line per borrowed or returned book, oldest first. */
+const LOANS = (() => {
+  const titles = ['Moby-Dick', 'Emma', 'Dracula', 'Heidi', 'Jane Eyre', 'Peter Pan', 'Little Women', 'Treasure Island', 'The Time Machine', 'Black Beauty', 'Kidnapped'];
+  const names = ['Ana', 'Ben', 'Chloe', 'Dev', 'Ella', 'Finn', 'Grace', 'Hugo', 'Ivy', 'Jonas', 'Kofi', 'Lena', 'Mo'];
+  const lines: string[] = [];
+  for (let i = 0; i < 30; i++) {
+    const day = String(6 + Math.floor(i / 2)).padStart(2, '0');
+    const time = i % 2 === 0 ? '10:15' : '16:40';
+    lines.push(`2026-10-${day} ${time}  ${names[(i * 5) % names.length]} ${i % 3 === 2 ? 'returned' : 'borrowed'} ${titles[(i * 4) % titles.length]}`);
+  }
+  return lines;
+})();
+
+const CATALOG_HEADER = 'title,author,year';
+
+const CATALOG_ROWS = [
+  'Pride and Prejudice,Jane Austen,1813',
+  'Frankenstein,Mary Shelley,1818',
+  'Moby-Dick,Herman Melville,1851',
+  'Jane Eyre,Charlotte Bronte,1847',
+  'Wuthering Heights,Emily Bronte,1847',
+  'Little Women,Louisa May Alcott,1868',
+  'Great Expectations,Charles Dickens,1861',
+  'A Tale of Two Cities,Charles Dickens,1859',
+  "Alice's Adventures in Wonderland,Lewis Carroll,1865",
+  'The Adventures of Tom Sawyer,Mark Twain,1876',
+  'Treasure Island,Robert Louis Stevenson,1883',
+  'Heidi,Johanna Spyri,1881',
+  'Dracula,Bram Stoker,1897',
+  'The Time Machine,H. G. Wells,1895',
+  'The War of the Worlds,H. G. Wells,1898',
+  'The Wonderful Wizard of Oz,L. Frank Baum,1900',
+  'Peter Pan,J. M. Barrie,1911',
+  'The Secret Garden,Frances Hodgson Burnett,1911',
+  'Anne of Green Gables,L. M. Montgomery,1908',
+  'The Wind in the Willows,Kenneth Grahame,1908',
+  'Black Beauty,Anna Sewell,1877',
+  'Robinson Crusoe,Daniel Defoe,1719',
+  "Gulliver's Travels,Jonathan Swift,1726",
+  'Emma,Jane Austen,1815',
+  'Sense and Sensibility,Jane Austen,1811',
+  'The Jungle Book,Rudyard Kipling,1894',
+  'Around the World in Eighty Days,Jules Verne,1872',
+  'Twenty Thousand Leagues Under the Seas,Jules Verne,1870',
+  'The Call of the Wild,Jack London,1903',
+  'Kidnapped,Robert Louis Stevenson,1886',
+];
+
+const CATALOG_LINES = CATALOG_ROWS.length + 1;
 
 const readingFiles: Lesson = {
   id: 'reading-files',
@@ -194,42 +265,57 @@ None of them change the file in any way: they only read it. So go ahead and look
       check: ran('file', { args: [/(^|\/)mystery$/] }),
     },
   ],
+  quizSetup: (env) => {
+    env.file('library/loans.log', LOANS.join('\n') + '\n');
+    env.file('library/catalog.csv', [CATALOG_HEADER, ...CATALOG_ROWS].join('\n') + '\n', { daysAgo: 12 });
+    binary(env, 'library/scan-0042', 'PDF document, version 1.7, 2 page(s)', 96_311);
+  },
   quiz: [
     {
-      kind: 'command',
-      prompt: 'Type a command that shows just the last 20 lines of `app.log`.',
-      accept: [
-        'tail -n 20 app.log',
-        'tail -20 app.log',
-        /^tail (-n ?20|-20|--lines[= ]20) (["']?)(\.\/)?app\.log\2$/,
-        /^tail (["']?)(\.\/)?app\.log\1 (-n ?20|--lines[= ]20)$/,
-        /^tail (-n ?20|-20|--lines[= ]20) ?< ?(["']?)(\.\/)?app\.log\2$/,
-        /^cat (["']?)(\.\/)?app\.log\1 ?\| ?tail (-n ?20|-20|--lines[= ]20)$/,
-      ],
-      explain: '`tail` shows the end of a file, and `-n 20` picks how many lines (`-20` is the short form). `head -n 20` would show the first 20 lines instead: the oldest entries of a log.',
+      kind: 'task',
+      prompt: 'Every time someone borrows or returns a book, the library adds a line to the **end** of `loans.log`. Show just the 6 most recent entries.',
+      hint: 'Use the command that shows the end of a file, and tell it how many lines you want.',
+      solution: ['tail -n 6 loans.log'],
+      explain: '`tail -n 6` shows the last 6 lines, which is where a log keeps its newest entries. `tail -6 loans.log` is the short form.',
+      check: (c) => showsOnly(c, LOANS.slice(-6), LOANS.slice(0, -6)),
     },
     {
-      prompt: 'What does the `18` mean in this output?\n\n```\n$ wc todo.txt\n 4 18 88 todo.txt\n```',
-      options: ['The file has 18 lines', 'The file is 18 bytes long', 'The file has 18 words', 'The longest line is 18 characters long'],
-      answer: 2,
-      explain: 'Without options, `wc` prints three numbers: lines, words and bytes. So `todo.txt` has 4 lines, 18 words and 88 bytes. Add `-l` to get just the line count.',
+      kind: 'task',
+      prompt: '`catalog.csv` is a spreadsheet file with one book per line. Show only its first line, which names the columns.',
+      hint: 'Use the command that shows the start of a file, and ask it for a single line.',
+      solution: ['head -n 1 catalog.csv'],
+      explain: '`head -n 1` (or `head -1`) prints just the first line. Peeking at the top is a good first step with any data file: it tells you what the columns are.',
+      check: (c) => showsOnly(c, [CATALOG_HEADER], CATALOG_ROWS),
     },
     {
       prompt: "You're reading a long file in `less`. How do you search it for the word *island*?",
       options: [
         'Press <kbd>Ctrl</kbd>+<kbd>F</kbd>, type `island` and press <kbd>Enter</kbd>',
-        'Type `/island` and press <kbd>Enter</kbd>',
         'Press <kbd>n</kbd>, then type `island`',
         'Press <kbd>q</kbd>, then run `less island`',
+        'Type `/island` and press <kbd>Enter</kbd>',
       ],
-      answer: 1,
+      answer: 3,
       explain: "In `less`, <kbd>/</kbd> starts a search: type the word after it and press <kbd>Enter</kbd>. After that, <kbd>n</kbd> jumps to the next match, and <kbd>q</kbd> quits when you're done.",
     },
     {
-      prompt: 'You find a file called `holiday.mp3` and ask `file` about it:\n\n```\n$ file holiday.mp3\nholiday.mp3: ASCII text\n```\n\nWhat is really inside it?',
-      options: ['A song: the `.mp3` ending says so', 'A song, but `file` can only recognize text files', 'Nothing: *ASCII text* means the file is empty', 'Plain text, whatever the name says'],
-      answer: 3,
-      explain: '`file` ignores the name and looks at the first bytes inside the file, so trust its answer. On Linux an extension is just part of the name: a text file can be called `holiday.mp3`. (An empty file would be reported as *empty*.)',
+      kind: 'task',
+      prompt: 'How many lines long is `catalog.csv`? Let a command count them for you.',
+      hint: 'The *word count* command can count lines too, with the right option.',
+      solution: ['wc -l catalog.csv'],
+      explain: `\`wc -l\` counts the lines: ${CATALOG_LINES}, the header plus ${CATALOG_ROWS.length} books. Without \`-l\`, \`wc\` shows the number of lines, words and bytes together.`,
+      check: (c) => !!c.ev && c.ev.execs.some(countsLines) && /catalog\.csv/.test(c.ev.line + c.ev.output) && new RegExp(`(^|\\s)${CATALOG_LINES}(\\s|$)`).test(c.ev.output),
+    },
+    {
+      kind: 'task',
+      prompt: 'The scanner saved a file called `scan-0042`, with no extension. Without opening it, find out what kind of data it holds.',
+      hint: "There's a command that reads the first few bytes of a file and names the format it finds there.",
+      solution: ['file scan-0042'],
+      explain: "It's a PDF document, 2 pages long. `file` recognizes the format from the data inside, so it doesn't need a name ending in `.pdf`.",
+      check: (c) =>
+        !!c.ev &&
+        /PDF document/.test(c.ev.output) &&
+        c.ev.execs.some((e) => base(e.argv[0]) === 'file' && (e.argv.some((a) => /(^|\/)scan-0042$/.test(a)) || /scan-0042:\s*PDF/.test(c.ev!.output))),
     },
   ],
   recap: `
@@ -364,28 +450,42 @@ Manual pages open in a viewer called \`less\`. These keys get you around:
   ],
   quiz: [
     {
-      prompt: '`man ls` worked fine a minute ago, but:\n\n```\n$ man cd\nNo manual entry for cd\n```\n\nWhy is there no manual page for `cd`?',
-      options: ['`cd` is a builtin, part of the shell itself, not a separate program', 'Only administrators may read the manual page for `cd`', '`man` only has pages for commands that print something'],
-      answer: 0,
-      explain: 'Builtins are part of the shell itself, so there is no program file to find, and usually no manual page of their own. `help cd` shows the help for `cd` instead.',
+      kind: 'task',
+      prompt: 'What options does `cp` have? Print its short summary of options right here in the terminal, without opening the full manual page.',
+      hint: 'Most commands print that summary when you give them a special option that starts with two dashes.',
+      solution: ['cp --help'],
+      explain: "`--help` prints a compact list of options straight into the terminal. It's the quickest answer to *what was that option called again?*",
+      check: (c) => !!c.ev && c.ev.execs.some((e) => base(e.argv[0]) === 'cp' && e.kind !== 'not-found' && e.argv.includes('--help')),
     },
     {
-      kind: 'command',
-      prompt: "You want to shrink a big file, but you don't know which command does that. Type a command that searches the manual page descriptions for the word *compress*.",
-      accept: ['man -k compress', 'apropos compress', /^(man (-k|--apropos)|apropos) (["']?)compress\3$/],
-      explain: '`man -k` (or `apropos`, which is the same search) lists every manual page whose one-line description mentions the word, `gzip` among them. Then read the one you want with `man gzip`.',
-    },
-    {
-      prompt: 'Which command tells you whether a name is a shell builtin, an alias or a program file?',
-      options: ['`which NAME`', '`help NAME`', '`man NAME`', '`type NAME`'],
-      answer: 3,
-      explain: "`type` knows everything the shell knows, so it can say *builtin*, *alias* or show the program's path. `which` only looks for program files: for a builtin like `cd` it prints nothing at all.",
+      kind: 'task',
+      prompt: "You need a command that can compress files, but you don't know its name. Search the one-line descriptions of all the manual pages for the word *compress*.",
+      hint: '`man` has an option that searches those descriptions instead of opening a page.',
+      solution: ['man -k compress'],
+      explain: '`man -k` (the same search as `apropos`) lists every manual page whose description mentions the word. `gzip` is the one you want, and `man gzip` explains how to use it.',
+      check: all(any(ran('man', { flags: 'k' }), ran('man', { args: ['--apropos'] }), ran('apropos')), outputIncludes('gzip')),
     },
     {
       prompt: 'The SYNOPSIS section of `man ls` says:\n\n```\nls [OPTION]... [FILE]...\n```\n\nWhat does that tell you?',
       options: ['You must give exactly one option and one file name', 'Options and file names are both optional, and you can give several of each', 'You type square brackets around each option', 'Options must come after the file names'],
       answer: 1,
       explain: 'In a synopsis, anything in `[square brackets]` is optional, and `...` means *you can give several*. So plain `ls` works, and so does `ls -l -a Documents Music`.',
+    },
+    {
+      kind: 'task',
+      prompt: '`export` is built into the shell itself, so it has no manual page: `man export` finds nothing. Show the help text that the shell has for it instead.',
+      hint: 'Builtins have a help command of their own.',
+      solution: ['help export'],
+      explain: '`help` shows the help for shell builtins such as `export`, `cd` and `history`, which usually have no manual page of their own. The first line shows how to call it.',
+      check: any(ran('help', { args: ['export'], status: 0 }), all(ran('export', { args: ['--help'] }), outputIncludes('Set export attribute'))),
+    },
+    {
+      kind: 'task',
+      prompt: 'Is `ll` a shell builtin, an alias or a program file? Ask the shell.',
+      hint: 'One command describes whatever name you give it. You used it on `cd`, `ls` and `cat` in this lesson.',
+      solution: ['type ll'],
+      explain: '`ll` is an **alias**: typing it really runs `ls -alF`, a long listing that includes hidden files. Ubuntu sets it up for you in `~/.bashrc`.',
+      check: any(outputIncludes(/\bll is aliased to\b/), all(ran('type'), outputIncludes(/^alias$/m)), all(ran('alias'), outputIncludes(/^alias ll=/m))),
     },
   ],
   recap: `
@@ -439,6 +539,33 @@ const TEA_ORDER: Check = (c) => {
   const steps = (linesOf(c, 'writing/tea.txt') ?? []).filter((l) => /^\d\./.test(l));
   return steps.length === 5 && steps.every((l, i) => l.startsWith(`${i + 1}.`));
 };
+
+const SUNFLOWER_STEPS = ['1. Fill a pot with soil.', '2. Push a seed into the soil, about 2 cm deep.', '3. Put the pot somewhere sunny.', '4. Water it a little every day.'];
+
+const SUNFLOWER = `How to grow a sunflower
+
+${SUNFLOWER_STEPS[1]}
+${SUNFLOWER_STEPS[2]}
+${SUNFLOWER_STEPS[3]}
+${SUNFLOWER_STEPS[0]}
+`;
+
+/** The guest list without the joke entry (which sits on line 33 of the file). */
+const GUESTS = [
+  'Party guests',
+  ...['Amelia Brooks', 'Ben Carter', 'Chloe Diaz', 'Daniel Evans', 'Ella Fischer', 'Felix Garcia', 'Grace Hughes', 'Henry Ito', 'Isla Jensen', 'Jack Kim'],
+  ...['Kira Lopez', 'Leo Martin', 'Maya Novak', 'Noah Okafor', 'Olivia Park', 'Pablo Quinn', 'Quinn Reyes', 'Rosa Silva', 'Sam Turner', 'Tara Usman'],
+  ...['Umar Vance', 'Vera Wong', 'Will Xu', 'Yara Young', 'Zane Adams', 'Alice Baker', 'Bruno Costa', 'Cora Dunn', 'Dmitri Egorov', 'Eva Flores'],
+  ...['Finn Gray', 'Gemma Hall', 'Hugo Ibsen', 'Iris James', 'Jonah Klein', 'Lena Moreau', 'Milo Nash', 'Nora Ortiz', 'Oscar Price'],
+];
+
+const GUESTS_FILE = [GUESTS[0], '', ...GUESTS.slice(1, 31), 'Count Dracula', ...GUESTS.slice(31)].join('\n') + '\n';
+
+const INVITATION = `You're invited!
+
+Come to my birthday party on Sunday at 3 pm.
+Bring your swimsuit: there's a pool!
+`;
 
 const nano: Lesson = {
   id: 'nano',
@@ -563,34 +690,81 @@ There's no clicking: move the cursor with the arrow keys.
       check: all(ran('nano'), not(fileContains('writing/packing-list.txt', /boots/i)), fileContains('writing/packing-list.txt', 'tent')),
     },
   ],
+  quizSetup: (env) => {
+    env.file('writing/sunflower.txt', SUNFLOWER, { daysAgo: 1 });
+    env.file('writing/guests.txt', GUESTS_FILE, { daysAgo: 3 });
+    env.file('writing/invitation.txt', INVITATION, { daysAgo: 1 });
+  },
   quiz: [
     {
-      prompt: "nano's shortcut list shows `^O Write Out`. What do you press to save?",
-      options: ['Type `^` and then <kbd>O</kbd>', '<kbd>Alt</kbd>+<kbd>O</kbd>', '<kbd>Ctrl</kbd>+<kbd>O</kbd>', '<kbd>O</kbd> on its own'],
-      answer: 2,
-      explain: 'In the shortcut list, `^` stands for the <kbd>Ctrl</kbd> key (and `M-` for <kbd>Alt</kbd>). *Write Out* is how nano says *save*: press <kbd>Ctrl</kbd>+<kbd>O</kbd>, then <kbd>Enter</kbd> to keep the file name.',
+      kind: 'task',
+      prompt: 'Use nano to create a new file called `reminder.txt` that says *Buy birthday candles*, and save it.',
+      hint: 'Give nano the new file name when you open it. In nano, saving is called *Write Out*.',
+      solution: [
+        'nano reminder.txt',
+        { keys: 'Buy birthday candles', label: 'Type Buy birthday candles' },
+        { keys: '\x0f', label: 'Press Ctrl+O to save' },
+        { keys: '\r', label: 'Press Enter to keep the name reminder.txt' },
+        { keys: '\x18', label: 'Press Ctrl+X to exit' },
+      ],
+      explain: 'nano only creates the file when you save: <kbd>Ctrl</kbd>+<kbd>O</kbd> and <kbd>Enter</kbd>, or <kbd>Ctrl</kbd>+<kbd>X</kbd>, <kbd>Y</kbd> and <kbd>Enter</kbd> on the way out.',
+      check: all(ran('nano'), fileContains('writing/reminder.txt', /buy birthday candles/i)),
+    },
+    {
+      kind: 'task',
+      prompt: 'In `sunflower.txt`, step 1 ended up at the bottom of the list. Use nano to move it to the top, so the steps go 1, 2, 3, 4.',
+      hint: 'Cut the line where it is now, move the cursor to where it belongs, and paste it there.',
+      solution: [
+        'nano sunflower.txt',
+        { keys: '\x1b[B'.repeat(5), label: 'Press ↓ five times, to the line starting with 1.' },
+        { keys: '\x0b', label: 'Press Ctrl+K to cut the line' },
+        { keys: '\x1b[A'.repeat(3), label: 'Press ↑ three times, to the line starting with 2.' },
+        { keys: '\x15', label: 'Press Ctrl+U to paste the line above it' },
+        { keys: '\x18y\r', label: 'Press Ctrl+X, then Y, then Enter to save and exit' },
+      ],
+      explain: '<kbd>Ctrl</kbd>+<kbd>K</kbd> cuts the whole line, and <kbd>Ctrl</kbd>+<kbd>U</kbd> pastes it just above the line the cursor is on, so pasting on step 2 put step 1 right before it.',
+      check: all(ran('nano'), (c) => sameLines(linesOf(c, 'writing/sunflower.txt'), ['How to grow a sunflower', ...SUNFLOWER_STEPS])),
     },
     {
       prompt: "You've made a mess of a file in nano and want it to stay exactly as it was. You press <kbd>Ctrl</kbd>+<kbd>X</kbd>, and nano asks **Save modified buffer?** What now?",
-      options: ['Press <kbd>Y</kbd>', 'Press <kbd>N</kbd>', 'Press <kbd>Ctrl</kbd>+<kbd>C</kbd>'],
-      answer: 1,
+      options: ['Press <kbd>N</kbd>', 'Press <kbd>Y</kbd>', 'Press <kbd>Ctrl</kbd>+<kbd>C</kbd>'],
+      answer: 0,
       explain: '<kbd>N</kbd> (*no*) leaves nano without saving, so the file stays as it was. <kbd>Y</kbd> would save the mess, and <kbd>Ctrl</kbd>+<kbd>C</kbd> cancels the question and takes you back to editing.',
     },
     {
-      prompt: 'How do you move a line to a different place in nano?',
-      options: [
-        'Put the cursor on it, press <kbd>Ctrl</kbd>+<kbd>K</kbd>, move to the new spot and press <kbd>Ctrl</kbd>+<kbd>U</kbd>',
-        'Put the cursor on it, press <kbd>Ctrl</kbd>+<kbd>X</kbd>, move to the new spot and press <kbd>Ctrl</kbd>+<kbd>V</kbd>',
-        'Select it with the mouse and drag it to the new spot',
+      kind: 'task',
+      prompt: "As a joke, someone added *Count Dracula* to the long guest list in `guests.txt`. Use nano to remove that line, and keep everyone else on the list. (Careful: <kbd>Ctrl</kbd>+<kbd>W</kbd> can close your browser tab.)",
+      hint: "Instead of scrolling, let nano find the line for you. In this practice terminal, nano's search is <kbd>Ctrl</kbd>+<kbd>F</kbd>.",
+      solution: [
+        'nano guests.txt',
+        { keys: '\x06', label: 'Press Ctrl+F to search' },
+        { keys: 'Dracula\r', label: 'Type Dracula and press Enter' },
+        { keys: '\x0b', label: 'Press Ctrl+K to cut the line' },
+        { keys: '\x18y\r', label: 'Press Ctrl+X, then Y, then Enter to save and exit' },
       ],
-      answer: 0,
-      explain: "<kbd>Ctrl</kbd>+<kbd>K</kbd> cuts the whole line and <kbd>Ctrl</kbd>+<kbd>U</kbd> pastes it at the cursor. The usual cut and paste keys don't work like that in nano (<kbd>Ctrl</kbd>+<kbd>X</kbd> exits!), and there's no clicking: you move around with the arrow keys.",
+      explain: 'Searching jumps straight to the match, wherever it is in the file, and <kbd>Ctrl</kbd>+<kbd>K</kbd> removes the whole line. On a long file, that beats scrolling.',
+      check: all(ran('nano'), (c) => sameLines(linesOf(c, 'writing/guests.txt'), GUESTS)),
     },
     {
-      prompt: 'You run `nano ideas.txt` to start a new file, type two lines, then press <kbd>Ctrl</kbd>+<kbd>X</kbd> and answer <kbd>N</kbd>. What does `ls` show afterwards?',
-      options: ['`ideas.txt`, with your two lines in it', '`ideas.txt`, but empty', 'No `ideas.txt` at all'],
-      answer: 2,
-      explain: 'nano edits a copy in memory, the *buffer*, and only writes it to disk when you save. You never saved, so the file was never created.',
+      kind: 'task',
+      prompt: "`invitation.txt` says the party is on Sunday, but it's really on Saturday. Use nano to fix that word.",
+      hint: 'Search for the wrong word to jump to it, delete it and type the right one.',
+      solution: [
+        'nano invitation.txt',
+        { keys: '\x06', label: 'Press Ctrl+F to search' },
+        { keys: 'Sunday\r', label: 'Type Sunday and press Enter' },
+        { keys: '\x1b[3~'.repeat(6), label: 'Press Delete six times' },
+        { keys: 'Saturday', label: 'Type Saturday' },
+        { keys: '\x18y\r', label: 'Press Ctrl+X, then Y, then Enter to save and exit' },
+      ],
+      explain: 'In nano you change text where it is: <kbd>Delete</kbd> removes the character under the cursor and <kbd>Backspace</kbd> the one before it. For many changes at once, <kbd>Ctrl</kbd>+<kbd>\\\\</kbd> searches and replaces.',
+      check: all(
+        ran('nano'),
+        fileContains('writing/invitation.txt', /party on saturday at 3 pm/i),
+        not(fileContains('writing/invitation.txt', /sunday/i)),
+        fileContains('writing/invitation.txt', "You're invited!"),
+        fileContains('writing/invitation.txt', "Bring your swimsuit: there's a pool!"),
+      ),
     },
   ],
   recap: `
@@ -617,6 +791,8 @@ There's no clicking: move the cursor with the arrow keys.
 };
 
 // ---------------------------------------------------------------------------
+
+const SORTED_FRUITS = 'apple\nbanana\ncherry\nmango\npear';
 
 const redirection: Lesson = {
   id: 'redirection',
@@ -733,28 +909,49 @@ Results go to **standard output**, error messages to **standard error**. Both no
       check: all(everRan('sort'), ran('cat', { args: [/fruits\.txt$/] }), (c) => fileText(c, 'lab/fruits.txt') === ''),
     },
   ],
+  quizSetup: (env) => {
+    env.file('lab/samples.txt', 'water\nsand\n', { daysAgo: 1 });
+  },
   quiz: [
     {
-      prompt: 'What is in `weather.txt` after these three commands?\n\n```\necho "Monday" > weather.txt\necho "Tuesday" > weather.txt\necho "Wednesday" >> weather.txt\n```',
-      options: ['Monday, Tuesday and Wednesday', 'Only Wednesday', 'Tuesday and Wednesday', 'Monday and Wednesday'],
-      answer: 2,
-      explain: 'Each `>` empties the file before writing, so the second command replaced *Monday* with *Tuesday*. Then `>>` added *Wednesday* to the end.',
+      kind: 'task',
+      prompt: 'Save the list of files and folders in `/etc` into a new file called `etc-list.txt`, here in `lab`.',
+      hint: 'List the folder as usual, then add the arrow that sends the output into a file.',
+      solution: ['ls /etc > etc-list.txt'],
+      explain: '`>` sent the listing into the file instead of onto the screen, and created the file on the way. Have a look inside with `cat etc-list.txt`.',
+      check: (c) => {
+        const t = fileText(c, 'lab/etc-list.txt');
+        return t !== null && /(^|[\s/])hosts$/m.test(t) && /(^|[\s/])passwd$/m.test(t);
+      },
     },
     {
-      prompt: 'Which command shows the sorted planets on the screen **and** saves them in `sorted.txt`?',
-      options: ['`sort planets.txt > sorted.txt`', '`sort planets.txt >> sorted.txt`', '`sort planets.txt < sorted.txt`', '`sort planets.txt | tee sorted.txt`'],
-      answer: 3,
-      explain: '`tee` copies what it receives both to the screen and into the file. `>` and `>>` send the output only into the file, and `<` saves nothing at all: it feeds a file *into* a command.',
+      kind: 'task',
+      prompt: '`samples.txt` lists two samples, *water* and *sand*. Add a third line, *salt*, to the end of the file without losing the other two.',
+      hint: 'One arrow replaces everything in a file. Which one adds to the end?',
+      solution: ['echo salt >> samples.txt'],
+      explain: '`>>` adds to the end of a file. A single `>` would have emptied it first, wiping out *water* and *sand*.',
+      check: (c) => sameLines(linesOf(c, 'lab/samples.txt')?.map((l) => l.toLowerCase()) ?? null, ['water', 'sand', 'salt']),
     },
     {
-      kind: 'command',
-      prompt: 'Type a command that runs `ls planets.txt missing.txt` but throws away the error message, so only the normal output appears.',
-      accept: [
-        'ls planets.txt missing.txt 2> /dev/null',
-        /^ls (planets\.txt missing\.txt|missing\.txt planets\.txt) 2> ?\/dev\/null$/,
-        /^(2> ?\/dev\/null ls|ls 2> ?\/dev\/null) (planets\.txt missing\.txt|missing\.txt planets\.txt)$/,
-      ],
-      explain: 'Error messages travel on standard error, stream 2, so `2>` redirects just them, and `/dev/null` swallows whatever is written to it. A plain `> /dev/null` would do the opposite: hide the normal output and still show the error.',
+      kind: 'task',
+      prompt: "`ls planets.txt moons.txt` complains, because there is no `moons.txt` here. Run it so that only the normal output appears, and the error message is thrown away.",
+      hint: 'Error messages travel on a stream of their own, number 2. Send just that stream to the special file that swallows everything.',
+      solution: ['ls planets.txt moons.txt 2> /dev/null'],
+      explain: '`2>` redirects only the error messages (stream 2), and `/dev/null` swallows whatever is written to it. A plain `> /dev/null` would do the opposite: hide the normal output and still show the error.',
+      check: (c) =>
+        !!c.ev &&
+        c.ev.execs.some((e) => base(e.argv[0]) === 'ls' && e.argv.some((a) => /(^|\/)moons\.txt$/.test(a))) &&
+        c.ev.output.includes('planets.txt') &&
+        !c.ev.output.includes('No such file') &&
+        c.ev.line.includes('/dev/null'),
+    },
+    {
+      kind: 'task',
+      prompt: 'Sort `fruits.txt` so that the sorted list appears on the screen **and** is saved in a new file, `sorted-fruits.txt`, with a single command line.',
+      hint: "There's a command that copies whatever it receives both onto the screen and into a file.",
+      solution: ['sort fruits.txt | tee sorted-fruits.txt'],
+      explain: '`tee` passes everything it receives on to the screen and also writes it into the file. With `-a` it would add to the end of the file instead of replacing it.',
+      check: (c) => !!c.ev && c.ev.output.includes(SORTED_FRUITS) && fileText(c, 'lab/sorted-fruits.txt')?.trim() === SORTED_FRUITS,
     },
     {
       prompt: 'You tried to sort a file into itself:\n\n```\nsort fruits.txt > fruits.txt\n```\n\nNow `cat fruits.txt` prints nothing. What happened?',

@@ -959,6 +959,7 @@ defineCommand({
     let pids: number[] | null = null;
     let format: string[] | null = null;
     let xFlag = false;
+    let aFlag = false;
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
       if (!a.startsWith('-')) {
@@ -970,9 +971,17 @@ defineCommand({
         }
         continue;
       }
+      if (/^-[aux]+$/.test(a) && a.includes('x')) {
+        // like procps, `ps -aux` (there is no user "x") is read as BSD `ps aux`
+        bsd = true;
+        showAll = a.includes('a');
+        xFlag = true;
+        continue;
+      }
       for (let j = 1; j < a.length; j++) {
         const c = a[j];
         if (c === 'e' || c === 'A') showAll = true;
+        else if (c === 'a') aFlag = true;
         else if (c === 'f' || c === 'F') full = true;
         else if (c === 'u' || c === 'U') {
           users = (a.slice(j + 1) || args[++i] || '').split(',');
@@ -994,6 +1003,8 @@ defineCommand({
     let rows = all;
     if (pids) rows = rows.filter((r) => pids!.includes(r.pid));
     else if (users) rows = rows.filter((r) => users!.includes(r.user) || users!.includes(String(r.uid)));
+    // -a: every process on a terminal except shells (session leaders)
+    else if (aFlag && !showAll) rows = rows.filter((r) => r.tty !== '?' && !/^-?(ba)?sh$/.test(r.comm));
     else if (!showAll && !(bsd && xFlag)) rows = rows.filter((r) => r.tty === 'pts/0');
     else if (bsd && xFlag && !showAll) rows = rows.filter((r) => r.uid === ctx.creds.uid);
     let out = '';

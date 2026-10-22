@@ -1,9 +1,11 @@
 // Module: Permissions and power.
 
+import { packageByName } from '../../shell/packages';
 import { HOSTS } from '../../shell/sampledata';
-import { abs, all, any, fileContains, fileLineCount, fileText, isExecutable, isFile, lineMatches, missing, modeIs, not, outputIncludes, ownerIs, packageInstalled, ran } from '../checks';
+import { abs, all, any, cwdIs, fileContains, fileLineCount, fileText, isExecutable, isFile, lineMatches, missing, modeIs, not, outputIncludes, ownerIs, packageInstalled, ran } from '../checks';
 import type { ExecEvent } from '../../shell/system';
-import type { CheckContext, Lesson } from '../types';
+import { ROOT_CREDS } from '../../shell/vfs/fs';
+import type { CheckContext, Lesson, LessonSetupEnv } from '../types';
 
 type Check = (c: CheckContext) => boolean;
 
@@ -13,6 +15,20 @@ const ROOT_CTX = { cwd: '/', creds: { uid: 0, gid: 0, groups: [0] } };
 function modeOf(c: CheckContext, path: string): number | null {
   const n = c.sys.fs.tryStat(abs(path), ROOT_CTX);
   return n ? n.mode & 0o7777 : null;
+}
+
+/** The non-blank lines of a file, trimmed (null if it doesn't exist). */
+function linesOf(c: CheckContext, path: string): string[] | null {
+  const t = fileText(c, path);
+  return t === null ? null : t.split('\n').map((l) => l.trim()).filter(Boolean);
+}
+
+/** A file belongs to this user and group. */
+function ownedBy(path: string, uid: number, gid: number): Check {
+  return (c) => {
+    const n = c.sys.fs.tryStat(abs(path), ROOT_CTX);
+    return !!n && n.uid === uid && n.gid === gid;
+  };
 }
 
 /** Some command in this lesson printed text matching `re`. */
@@ -84,6 +100,12 @@ const RULES_LINES = RULES.split('\n').filter((l) => l.trim() !== '').length;
 const HELLO_SH = `#!/bin/bash
 echo "Welcome to the club, $USER. You just ran a program."
 `;
+
+const BACKUP_SH = `#!/bin/bash
+echo "Backing up the club files... all done."
+`;
+
+const MENU_LINES = ['Snack menu', '1. Apples', '2. Popcorn', '3. Cookies'];
 
 export const permissions: Lesson = {
   id: 'permissions',
@@ -206,18 +228,32 @@ So \`-rwxr-xr--\` means: the owner may do everything, the group may read and run
       check: all(seenOutput(/photos: Permission denied/), modeIs('club/photos', 0o755)),
     },
   ],
+  quizSetup: (env) => {
+    env.file('club/backup.sh', BACKUP_SH, { mode: 0o664, daysAgo: 1 });
+    env.file('club/secret.txt', 'The treasure is buried under the third oak tree.\n', { mode: 0o664, daysAgo: 3 });
+    env.file('club/menu.txt', MENU_LINES.join('\n') + '\n', { mode: 0o444, daysAgo: 10 });
+    env.file('club/minutes/october.txt', 'October meeting: we voted for more snacks.\n', { mode: 0o644, daysAgo: 8 });
+    env.dir('club/minutes', { mode: 0o644 });
+  },
   quiz: [
     {
-      prompt: '`ls -l` shows this line:\n\n```\n-rw-rw-r-- 1 learner team 120 Oct 21 10:00 plan.txt\n```\n\nWhat may members of the group `team` do with `plan.txt`?',
-      options: ['Read it and change it, but not run it', 'Only read it', 'Read it, change it and run it', 'Nothing: only the owner may use it'],
-      answer: 0,
-      explain: 'After the type character come three sets of three letters: `rw-` for the owner, `rw-` for the group and `r--` for everyone else. The group has `r` and `w`, but no `x`.',
+      kind: 'task',
+      prompt: "`backup.sh` is a script, but nobody may run it yet. Allow **only yourself**, its owner, to run it, without changing anyone else's permissions. Then run it.",
+      hint: 'Add execute permission for the **u**ser who owns the file, and nobody else. To run a program in the current folder, put `./` in front of its name.',
+      solution: ['chmod u+x backup.sh', './backup.sh'],
+      explain: '`u+x` added execute permission for the owner only, so the file is now `rwxrw-r--` (764). A plain `chmod +x` would have let everyone run it.',
+      check: all(
+        modeIs('club/backup.sh', 0o764),
+        any(ran('backup.sh', { status: 0 }), (c) => !!c.ev && c.ev.execs.some((e) => ['bash', 'sh'].includes(e.argv[0]?.split('/').pop() ?? '') && e.status === 0 && e.argv.some((a) => /(^|\/)backup\.sh$/.test(a)))),
+      ),
     },
     {
-      kind: 'command',
-      prompt: "You try to run your own script:\n\n```\n$ ./backup.sh\nbash: ./backup.sh: Permission denied\n```\n\nType a `chmod` command that lets you, its owner, run it, without changing anyone else's permissions.",
-      accept: ['chmod u+x backup.sh', /^chmod u(\+x|\+rx|\+xr|\+rwx|=rwx) (["']?)(\.\/)?backup\.sh\2$/],
-      explain: 'Linux only runs a file that has `x` (execute) permission. `u+x` adds it for the **u**ser who owns the file and nobody else; `chmod +x` would give it to everyone.',
+      kind: 'task',
+      prompt: 'Make `secret.txt` private: you may still read and change it, but nobody else may read it, change it or run it.',
+      hint: 'Either take read and write away from the group and others, or use the number that means `rw-------` (r = 4, w = 2, x = 1).',
+      solution: ['chmod 600 secret.txt'],
+      explain: '`600` is `rw-------`: read and write for you, nothing for anyone else. `chmod go-rw secret.txt` gets you the same result with letters.',
+      check: modeIs('club/secret.txt', 0o600),
     },
     {
       prompt: 'Which permissions does `chmod 750 run.sh` give the file?',
@@ -226,10 +262,23 @@ So \`-rwxr-xr--\` means: the owner may do everything, the group may read and run
       explain: 'Each digit adds up r = 4, w = 2 and x = 1, in the order user, group, others: 7 = 4 + 2 + 1 = `rwx`, 5 = 4 + 1 = `r-x`, and 0 = `---`.',
     },
     {
-      prompt: "You own the folder `photos`, but you can't go inside:\n\n```\n$ ls -l\ntotal 4\ndrw-r--r-- 2 learner learner 4096 Oct 21 10:00 photos\n$ cd photos\nbash: cd: photos: Permission denied\n```\n\nWhy?",
-      options: ['You need `w` permission to go into a folder', 'The `d` at the start means the folder is disabled', 'The folder is empty, so there is nothing to go into', 'It has no `x` permission, which on a folder means *go inside*'],
-      answer: 3,
-      explain: "On a folder, `x` is the permission to enter it and use what's inside, and this one has no `x` for anybody. `chmod 755 photos` opens the door again. The `d` just means *directory*.",
+      kind: 'task',
+      prompt: '`menu.txt` is read-only, even for you. Add the line *4. Pizza on Fridays* to the end of it, keeping the rest of the menu.',
+      hint: "It's your file, so you may give yourself write permission first.",
+      solution: ['chmod u+w menu.txt', 'echo "4. Pizza on Fridays" >> menu.txt'],
+      explain: '`chmod u+w` gave you, the owner, write permission (`rw-r--r--`), and then `>>` could add the line. You can always change the permissions of your own files.',
+      check: (c) => {
+        const lines = linesOf(c, 'club/menu.txt');
+        return !!lines && lines.length === MENU_LINES.length + 1 && MENU_LINES.every((l, i) => lines[i] === l) && /^4\.\s*pizza on fridays$/i.test(lines[MENU_LINES.length]);
+      },
+    },
+    {
+      kind: 'task',
+      prompt: "You can't get into the `minutes` folder. Give it the usual permissions for a folder (you may do everything; everyone else may look inside and go in, but not change anything), then go inside.",
+      hint: 'On a folder, `x` is the permission to go inside. The usual folder setting is the number that means `rwxr-xr-x`.',
+      solution: ['chmod 755 minutes', 'cd minutes'],
+      explain: "`755` is `rwxr-xr-x`, the setting almost every folder has. Without `x`, a folder is a locked door, even when you're allowed to read the names inside.",
+      check: all(modeIs('club/minutes', 0o755), cwdIs('club/minutes')),
     },
   ],
   recap: `
@@ -275,6 +324,20 @@ function newHostEntries(c: CheckContext): string[] {
 }
 
 const hostsIntact = fileContains('/etc/hosts', /^127\.0\.0\.1\s+localhost\b/m);
+
+/** Every entry and comment that was in /etc/hosts at the start is still there. */
+const hostsKept: Check = (c) => {
+  const t = fileText(c, '/etc/hosts');
+  if (t === null) return false;
+  const lines = new Set(t.split('\n').map((l) => l.trim().replace(/\s+/g, ' ')));
+  return [...ORIGINAL_HOSTS].every((l) => lines.has(l));
+};
+
+const CLUB_CONF = `# Settings for the terminal club
+name=Terminal Club
+max_members=10
+meeting_day=Thursday
+`;
 
 const PASSWORD = { keys: 'password\r', label: 'Type any password (nothing appears as you type) and press Enter', delay: 300 };
 
@@ -390,7 +453,19 @@ sudo asks for **your own** password, to prove it's really you at the keyboard. W
       check: any(all(isFile('mistake.txt'), ownerIs('mistake.txt', 1000)), missing('mistake.txt')),
     },
   ],
+  quizSetup: (env) => {
+    env.file('/etc/club.conf', CLUB_CONF, { owner: 'root', mode: 0o644, daysAgo: 30 });
+    env.file('report.txt', 'Quarterly report\n\nMembers: 12\nSnacks eaten: too many\n', { owner: 'root', mode: 0o644 });
+  },
   quiz: [
+    {
+      kind: 'task',
+      prompt: 'Run the command that prints your user name, but run it as the administrator, root.',
+      hint: "One word in front of the command borrows root's power. Nothing appears on the screen while you type the password; that's normal.",
+      solution: ['sudo whoami', PASSWORD],
+      explain: "It printed `root`: sudo ran that one command as the administrator, after checking your password. The next command runs as you again.",
+      check: ranAsRoot('whoami', { status: 0 }),
+    },
     {
       prompt: 'Why is this refused, even with sudo?\n\n```\n$ sudo echo "127.0.0.1 blog.test" >> /etc/hosts\nbash: /etc/hosts: Permission denied\n```',
       options: ['sudo did not accept your password', 'Your own shell opens the file for `>>` before sudo starts, and your shell is not root', 'Not even root may change `/etc/hosts`', 'It should have been `>` instead of `>>`'],
@@ -398,27 +473,40 @@ sudo asks for **your own** password, to prove it's really you at the keyboard. W
       explain: "Redirections are done by the shell you're typing into, which runs as you, before the command even starts. Here sudo never even ran; it would only have given root's power to `echo`, which doesn't need it.",
     },
     {
-      kind: 'command',
-      prompt: 'Type a command that adds the line `127.0.0.1 shop.test` to the end of the protected file `/etc/hosts`, using sudo in a way that works.',
-      accept: [
-        'echo "127.0.0.1 shop.test" | sudo tee -a /etc/hosts',
-        /^echo (["']?)127\.0\.0\.1 shop\.test\1 ?\| ?sudo tee (-a|--append) \/etc\/hosts( ?> ?\/dev\/null)?$/,
-        /^sudo (sh|bash) -c 'echo ("?)127\.0\.0\.1 shop\.test\2 ?>> ?\/etc\/hosts'$/,
-        /^sudo (sh|bash) -c "echo ('?)127\.0\.0\.1 shop\.test\2 ?>> ?\/etc\/hosts"$/,
+      kind: 'task',
+      prompt: 'Make the name `games.test` point to your own computer: add the line `127.0.0.1 games.test` to the protected file `/etc/hosts`, and keep everything that is already in it.',
+      hint: "Let a program that runs as root open the file itself. `tee` can do that; don't forget its option that **a**ppends, or it replaces the whole file.",
+      solution: ['echo "127.0.0.1 games.test" | sudo tee -a /etc/hosts'],
+      explain: '`tee` opened the file itself, and it ran as root, so it was allowed to. `-a` made it add to the end instead of replacing everything. `sudo nano /etc/hosts` works too.',
+      check: all(hostsKept, (c) => newHostEntries(c).includes('127.0.0.1 games.test')),
+    },
+    {
+      kind: 'task',
+      prompt: 'The club keeps its settings in the protected file `/etc/club.conf`. Change `max_members` from 10 to 20 there, without changing the other settings.',
+      hint: 'Open the file in nano, but as root, so that nano is allowed to save it.',
+      solution: [
+        'sudo nano /etc/club.conf',
+        { keys: '\x06', label: 'Press Ctrl+F to search' },
+        { keys: '10\r', label: 'Type 10 and press Enter' },
+        { keys: '\x1b[3~\x1b[3~', label: 'Press Delete twice' },
+        { keys: '20', label: 'Type 20' },
+        { keys: '\x18y\r', label: 'Press Ctrl+X, then Y, then Enter to save and exit' },
       ],
-      explain: "Here the file is opened by `tee`, which runs as root. Don't forget the `-a`: without it, tee replaces the whole file instead of adding to the end.",
+      explain: 'Because nano itself ran as root, it could save the protected file. `sudo nano` followed by the path is the usual way to change a system settings file.',
+      check: all(
+        fileContains('/etc/club.conf', /^max_members\s*=\s*20\s*$/m),
+        not(fileContains('/etc/club.conf', /^max_members\s*=\s*10\s*$/m)),
+        fileContains('/etc/club.conf', /^name=Terminal Club$/m),
+        fileContains('/etc/club.conf', /^meeting_day=Thursday$/m),
+      ),
     },
     {
-      prompt: 'sudo asks `[sudo] password for learner:`, but nothing shows up on the screen as you type. What should you do?',
-      options: ['Keep typing your own password and press <kbd>Enter</kbd>: hiding it is normal', "Type root's password instead, since the command will run as root", 'Press <kbd>Ctrl</kbd>+<kbd>C</kbd>: the terminal has frozen'],
-      answer: 0,
-      explain: "sudo asks for **your** password, to check that it's really you at the keyboard, and it deliberately shows nothing while you type, not even dots.",
-    },
-    {
-      prompt: 'In your home folder, you run `sudo touch notes.txt`. What is the catch?',
-      options: ['There is none: the file belongs to you, as usual', "The file is created in root's home folder instead of yours", '`touch` refuses to run as root', "`notes.txt` belongs to root, so you can't change it without sudo"],
-      answer: 3,
-      explain: 'Anything a command creates while running as root belongs to root. You never need sudo in your own home folder; if a file there ends up belonging to root, `sudo chown learner:learner notes.txt` gives it back.',
+      kind: 'task',
+      prompt: 'Someone used sudo out of habit, and now `report.txt` in your home folder belongs to root, so you can no longer change it. Make it yours again: both its owner and its group should be `learner`.',
+      hint: 'Only root may give a file to someone else. The command that changes the owner takes `user:group`.',
+      solution: ['sudo chown learner:learner report.txt'],
+      explain: '`chown learner:learner` gave the file back to you, both owner and group, and `ls -l report.txt` shows `learner learner` again.',
+      check: ownedBy('report.txt', 1000, 1000),
     },
   ],
   recap: `
@@ -445,6 +533,21 @@ sudo asks for **your own** password, to prove it's really you at the keyboard. W
 
 // ---------------------------------------------------------------------------
 // Lesson: Installing software with apt
+
+/** Put a package's programs on disk and register it as installed, the way `apt install` leaves things. */
+function preinstall(env: LessonSetupEnv, name: string, programSize: number): void {
+  const pkg = packageByName(name);
+  if (!pkg) return;
+  const ctx = { cwd: '/', creds: ROOT_CREDS, umask: 0o022 };
+  const files = ['/.'];
+  for (const c of pkg.commands) {
+    const path = `${c.dir}/${c.name}`;
+    const node = env.sys.fs.writeFile(path, { kind: 'native', command: c.name, size: programSize }, ctx, { mode: 0o755 });
+    node.mode = 0o755;
+    files.push(path);
+  }
+  env.sys.fs.writeFile(`/var/lib/dpkg/info/${pkg.name}.list`, files.join('\n') + '\n', ctx, { mode: 0o644 });
+}
 
 export const installingSoftware: Lesson = {
   id: 'installing-software',
@@ -473,12 +576,12 @@ Looking things up is safe for anyone; changing the system needs sudo.
 Try a calendar program that isn't installed yet: \`$ cal\`. Ubuntu notices, and even tells you which package would provide it.
 
 > [!HOW]
-> apt keeps a local copy of each repository's catalogue: every package, its version, and what else it needs. \`apt update\` downloads a fresh copy of that catalogue (it doesn't install anything). \`apt install\` looks the package up, works out which other packages it needs to work (its **dependencies**), downloads them, checks that they are genuine, and hands them to a lower-level tool called \`dpkg\`, which unpacks the files into place, such as the program \`/usr/bin/cal\`.
+> apt keeps a local copy of each repository's catalog: every package, its version, and what else it needs. \`apt update\` downloads a fresh copy of that catalog (it doesn't install anything). \`apt install\` looks the package up, works out which other packages it needs to work (its **dependencies**), downloads them, checks that they are genuine, and hands them to a lower-level tool called \`dpkg\`, which unpacks the files into place, such as the program \`/usr/bin/cal\`.
 `,
   steps: [
     {
       id: 'search',
-      title: 'Search the catalogue',
+      title: 'Search the catalog',
       instruction: 'Search for packages that have anything to do with calendars:\n\n`$ apt search calendar`',
       solution: ['apt search calendar'],
       explain:
@@ -498,7 +601,7 @@ Try a calendar program that isn't installed yet: \`$ cal\`. Ubuntu notices, and 
       id: 'update',
       title: 'Refresh the package list',
       instruction:
-        "Before installing, refresh apt's catalogue so it knows about the newest versions. That changes the system, so it needs sudo. Type any password when asked, then press <kbd>Enter</kbd>:\n\n`$ sudo apt update`",
+        "Before installing, refresh apt's catalog so it knows about the newest versions. That changes the system, so it needs sudo. Type any password when asked, then press <kbd>Enter</kbd>:\n\n`$ sudo apt update`",
       hint: 'Without sudo, apt stops with *Permission denied* errors: only root may change the package lists.',
       solution: ['sudo apt update', PASSWORD],
       explain:
@@ -544,30 +647,47 @@ Try a calendar program that isn't installed yet: \`$ cal\`. Ubuntu notices, and 
       check: all(not(packageInstalled('ncal')), everRanAsRoot('apt', { args: [/^(remove|purge)$/], aliases: ['apt-get'] })),
     },
   ],
+  quizSetup: (env) => {
+    preinstall(env, 'sl', 17_792);
+  },
   quiz: [
     {
+      kind: 'task',
+      prompt: "You'd like a program that turns text into big banner letters, but you don't know what it's called. Search apt's catalog for one.",
+      hint: 'apt can search the names and descriptions of every package. Looking things up needs no sudo.',
+      solution: ['apt search banner'],
+      explain: '`apt search` looks through the names and descriptions of all the packages: `figlet` makes large letters out of ordinary text. Searching only reads the catalog, so anyone may do it.',
+      check: all(any(ran('apt', { args: ['search'] }), ran('apt-cache', { args: ['search'] })), outputIncludes('figlet')),
+    },
+    {
+      kind: 'task',
+      prompt: 'Before installing `htop`, find out how big its download is, without installing anything.',
+      hint: 'apt can describe a package in detail, including its sizes.',
+      solution: ['apt show htop'],
+      explain: '`apt show` describes a package: its version, its download size, what it depends on and what it does. Like searching, it changes nothing, so it needs no sudo.',
+      check: all(any(ran('apt', { args: ['show', 'htop'] }), ran('apt-cache', { args: ['show', 'htop'] })), outputIncludes('Download-Size')),
+    },
+    {
       prompt: 'What does `sudo apt update` do?',
-      options: ['Installs the newest version of every program you have', "Refreshes apt's list of available packages, without installing anything", 'Updates Ubuntu to its next release', 'Updates apt itself to its newest version'],
-      answer: 1,
-      explain: '`apt update` only downloads a fresh copy of the catalogue, so that apt knows about the newest versions. Actually installing newer versions of your software is `sudo apt upgrade`.',
-    },
-    {
-      kind: 'command',
-      prompt: 'Type the command that installs the package `cowsay`.',
-      accept: ['sudo apt install cowsay', 'sudo apt-get install cowsay', /^sudo apt(-get)?( -y| --yes)? install( -y| --yes)? cowsay( -y| --yes)?$/],
-      explain: 'Installing changes the system, so it needs `sudo` in front. apt then downloads the package, plus anything it depends on, and sets it up.',
-    },
-    {
-      prompt: 'Which of these commands works without sudo?',
-      options: ['`apt install ncal`', '`apt remove ncal`', '`apt update`', '`apt search calendar`'],
-      answer: 3,
-      explain: 'Looking things up, with `apt search`, `apt show` or `apt list --installed`, is safe for anyone. Anything that changes the system, such as `update`, `install` and `remove`, needs sudo.',
-    },
-    {
-      prompt: "What is Ubuntu telling you here?\n\n```\n$ cal\nCommand 'cal' not found, but can be installed with:\nsudo apt install ncal\n```",
-      options: ["`cal` isn't installed, but the package `ncal` provides it", '`cal` is misspelled, and the right name is `ncal`', '`cal` only works when you run it with sudo', '`cal` was removed for safety reasons'],
+      options: ["Refreshes apt's list of available packages, without installing anything", 'Installs the newest version of every program you have', 'Updates Ubuntu to its next release', 'Updates apt itself to its newest version'],
       answer: 0,
-      explain: 'A package can contain commands with other names: installing `ncal` gives you the `cal` command. Ubuntu found the missing command in its catalogue and tells you which package to install.',
+      explain: '`apt update` only downloads a fresh copy of the catalog, so that apt knows about the newest versions. Actually installing newer versions of your software is `sudo apt upgrade`.',
+    },
+    {
+      kind: 'task',
+      prompt: 'Install the package `cowsay`, then use it to make the cow say *moo*.',
+      hint: 'Installing changes the system, so it needs sudo. apt asks before installing extra packages that cowsay needs: answer yes.',
+      solution: ['sudo apt install cowsay', PASSWORD, { keys: 'y\r', label: 'Type y and press Enter to confirm', delay: 1200 }, 'cowsay moo'],
+      explain: 'apt asked *Do you want to continue?* because cowsay needs one more package to work, and it installed both. The new command then works like any other: `cowsay` followed by what the cow should say.',
+      check: all(packageInstalled('cowsay'), any(ran('cowsay', { status: 0 }), ran('cowthink', { status: 0 }))),
+    },
+    {
+      kind: 'task',
+      prompt: 'Someone installed the package `sl` on this computer: a steam train that rides across the screen whenever you mistype `ls`. Uninstall it.',
+      hint: 'Removing software changes the system, so it needs sudo. If sudo asks for your password again, type anything and press Enter.',
+      solution: ['sudo apt remove sl', { keys: 'y\r', label: 'Type y and press Enter to confirm', delay: 1200 }],
+      explain: "apt removed the package's files, so `sl` is gone again. `sudo apt purge sl` would also have deleted its system-wide settings.",
+      check: not(packageInstalled('sl')),
     },
   ],
   recap: `

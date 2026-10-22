@@ -1,7 +1,7 @@
 // Module: Your shell, your way.
 
 import { BASHRC } from '../../shell/sampledata';
-import { all, any, cwdIs, everRan, fileContains, fileText, lineMatches, ran, varIs } from '../checks';
+import { aliasIs, all, any, cwdIs, everRan, fileContains, fileText, lineMatches, outputIncludes, ran, varIs } from '../checks';
 import type { CheckContext, Lesson } from '../types';
 
 type Check = (c: CheckContext) => boolean;
@@ -26,7 +26,7 @@ export const variables: Lesson = {
   moduleId: 'shell',
   minutes: 10,
   intro: `
-A **variable** is a name that holds a value, like a labelled box. You create one by writing the name, an equals sign and the value, **with no spaces**:
+A **variable** is a name that holds a value, like a labeled box. You create one by writing the name, an equals sign and the value, **with no spaces**:
 
 \`\`\`
 city=Paris
@@ -116,38 +116,49 @@ The braces in \`\${city}\` mark exactly where the name ends, which matters when 
   ],
   quiz: [
     {
-      prompt: 'You already have `city=Paris`. To change it you type `city = Rome`, and the shell answers `city: command not found`. Why?',
-      options: [
-        '`Rome` is text, so it needs quotes around it: `city = "Rome"`',
-        'Variable names must be in capital letters, so it should have been `CITY = Rome`',
-        'The spaces split the line into words, so the shell looked for a command called `city`',
-        "A variable can't be changed once it has been set, so you need to choose a new name",
-      ],
-      answer: 2,
-      explain: 'The shell splits a line into words at the spaces, so it saw a command `city` with the arguments `=` and `Rome`. Write it as one word, with no spaces around the `=`: `city=Rome`.',
-    },
-    {
-      prompt: 'With `city=Paris` set, which command prints *Parisian food*?',
-      options: ['`echo "$cityian food"`', "`echo '${city}ian food'`", '`echo "$city ian food"`', '`echo "${city}ian food"`'],
-      answer: 3,
+      kind: 'task',
+      prompt: 'Create a variable named `dessert` that holds the two words `apple pie`.',
+      hint: 'No spaces around the `=`, and quotes to keep the two words together as one value.',
+      solution: ['dessert="apple pie"'],
       explain:
-        'The braces mark where the name ends, so `${city}ian` becomes *Parisian*. Without them the shell looks for a variable called `cityian`, which is empty, and inside single quotes `${city}` is printed exactly as typed.',
+        'The quotes hold `apple pie` together as one value; `echo "$dessert"` prints it. Without them, the shell would split the line at the space and try to run a command called `pie`, and `dessert` would not be set at all.',
+      check: varIs('dessert', 'apple pie'),
     },
     {
-      kind: 'command',
-      prompt: "You made a variable with `city=Paris`, but `printenv city` prints nothing: the programs you start can't see it. Type the command that adds `city` to the environment, so they can.",
-      accept: ['export city', /^export city=(Paris|"Paris"|'Paris')$/, 'declare -x city', 'typeset -x city'],
-      explain: '`export city` adds the variable to the environment, so every program the shell starts from now on gets a copy of it. There is no `$`: you are naming the variable, not using its value.',
+      kind: 'task',
+      prompt: '`$USER` holds your user name. Use it to print your user name with `_notes` stuck straight onto the end, like this: `learner_notes`',
+      hint: 'Variable names can contain underscores, so the shell needs to be told where the name `USER` ends.',
+      solution: ['echo "${USER}_notes"'],
+      explain:
+        'The braces in `${USER}` mark where the name ends. Without them, `$USER_notes` looks for a variable called `USER_notes`, which was never set, so `echo` prints an empty line. (`"$USER"_notes` works too: the closing quote also ends the name.)',
+      check: all(lineMatches(/\$\{?USER\b/), outputIncludes(/\blearner_notes\b/)),
+    },
+    {
+      kind: 'task',
+      prompt: 'Print this text exactly as it is written here, dollar sign and all: `Your home is $HOME`',
+      hint: 'One kind of quotes leaves `$` signs alone.',
+      solution: ["echo 'Your home is $HOME'"],
+      explain: 'Inside single quotes the shell changes nothing, so `$HOME` reached `echo` untouched. Inside double quotes it would have been replaced by the path of your home folder, `/home/learner`.',
+      check: outputIncludes('Your home is $HOME'),
+    },
+    {
+      kind: 'task',
+      prompt: 'Create a variable named `TEAM` that holds `blue`, and make it available to the programs you start, so that `printenv TEAM` shows it.',
+      hint: 'Setting the variable is not enough on its own: it also has to be added to the environment.',
+      solution: ['export TEAM=blue'],
+      explain:
+        '`export` adds the variable to the environment, so every program you start from now on gets a copy of it. You can also set it first and export it afterwards: `TEAM=blue`, then `export TEAM` (no `$`: you are naming the variable, not using its value).',
+      check: all(varIs('TEAM', 'blue'), exported('TEAM')),
     },
     {
       prompt: 'Your `PATH` is `/usr/local/bin:/usr/bin:/bin`, and there is a program called `backup` in both `/usr/local/bin` and `/usr/bin`. Which one runs when you type `backup`?',
       options: [
-        '`/usr/local/bin/backup`, because that folder comes first in the list',
         '`/usr/bin/backup`, because `/usr/bin` is where most programs live',
         'Both of them, one after the other',
+        '`/usr/local/bin/backup`, because that folder comes first in the list',
         'Whichever of the two was installed most recently',
       ],
-      answer: 0,
+      answer: 2,
       explain: 'The shell searches the folders in `PATH` from left to right and runs the first match it finds. `which backup` would show you which one that is: `/usr/local/bin/backup`.',
     },
   ],
@@ -279,33 +290,59 @@ You rarely see this number, but it's always kept in the special variable \`$?\`.
   ],
   quiz: [
     {
+      kind: 'task',
+      prompt: 'Find out which exit status the shell reports when you type a command that does not exist. Make up any name you like.',
+      hint: 'Run your made-up command first, then print the special variable that holds the status of the most recent command.',
+      solution: ['blorp', 'echo $?'],
+      explain:
+        '`127` is the shell\'s way of saying *command not found*. Check `$?` straight after the command you are curious about: every command, even `echo`, replaces it with its own status.',
+      check: all(
+        lineMatches(/\$\?/),
+        printedNumber(/^127$/),
+        (c) => c.commands.some((ev) => ev.execs.some((e) => e.kind === 'not-found')),
+      ),
+    },
+    {
       prompt: 'What do the two `echo` commands print?\n\n```\nfalse\necho $?\necho $?\n```',
       options: ['`1`, then `1`', '`1`, then `0`', '`0`, then `0`', '`0`, then `1`'],
       answer: 1,
       explain: '`false` always fails with status 1, so the first `echo $?` prints `1`. That `echo` succeeded, though, so the second one prints `0`: `$?` only ever holds the status of the most recent command.',
     },
     {
-      prompt: 'You want to delete the photos in the folder `old-photos`, but only if you really got into that folder. Which line is safe?',
-      options: ['`cd old-photos; rm *.jpg`', '`cd old-photos || rm *.jpg`', '`cd old-photos && rm *.jpg`'],
-      answer: 2,
-      explain: 'With `&&`, `rm` runs only if `cd` succeeded. With `;` it runs no matter what, and with `||` only if `cd` **failed**, so both of those can delete the `.jpg` files in whatever folder you happen to be in.',
+      kind: 'task',
+      prompt: 'In one line, try to show what is in a file called `missing.txt` (there is no such file), and then, whether that worked or not, print `Finished`.',
+      hint: 'One separator runs the next command no matter how the first one went.',
+      solution: ['cat missing.txt; echo "Finished"'],
+      explain:
+        'A semicolon runs the next command once the first one has finished, whatever its exit status. With `&&`, `Finished` would not have been printed, because `cat` failed, and with `||` it would be printed only when `cat` fails.',
+      check: all(
+        lineMatches(/;/),
+        (c) => !!c.ev && c.ev.execs.length >= 2 && c.ev.execs[0].status !== 0,
+        outputIncludes(/\bfinished\b/i),
+      ),
     },
     {
-      prompt: 'Which line adds `cheese` to `shopping.txt` only if it is not on the list yet?',
-      options: [
-        '`grep -q cheese shopping.txt || echo cheese >> shopping.txt`',
-        '`grep -q cheese shopping.txt && echo cheese >> shopping.txt`',
-        '`grep -q cheese shopping.txt; echo cheese >> shopping.txt`',
-        '`grep -q cheese shopping.txt | echo cheese >> shopping.txt`',
-      ],
-      answer: 0,
-      explain: "`grep -q` reports 0 when it finds the word and 1 when it doesn't, and `||` runs the `echo` only after a failure. `&&` would add cheese only when it is already there, while `;` and a single `|` (a pipe) run both commands every time.",
+      kind: 'task',
+      prompt: 'Add `butter` to the end of `shopping.txt`, but only if it is not on the list already. Do it in one line, so that running the same line again would not add it a second time.',
+      hint: 'Search the list quietly first, and add the word only if that search fails.',
+      solution: ['grep -q butter shopping.txt || echo butter >> shopping.txt'],
+      explain:
+        "`grep -q` reports 0 when it finds the word and 1 when it doesn't, and `||` runs the `echo` only after a failure. Run the line again and nothing happens, because now grep finds butter. (Remember: two arrows, `>>`, add to the end of a file; one would replace it.)",
+      check: all(
+        ran('grep', { args: [/butter/] }),
+        lineMatches(/\|\||\bif\b/),
+        (c) => (fileText(c, 'shopping.txt') ?? '').split('\n').filter((l) => /^\s*butter\s*$/i.test(l)).length === 1,
+        // added to the list, not written over it
+        ...SHOPPING.trim().split('\n').map((item) => fileContains('shopping.txt', new RegExp(`^${item}$`, 'm'))),
+      ),
     },
     {
-      kind: 'command',
-      prompt: 'Type one line that creates a folder called `build` and then moves into it, but only if the folder was created successfully.',
-      accept: ['mkdir build && cd build', /^mkdir (\.\/)?build\/? ?&& ?cd (\.\/)?build\/?$/],
-      explain: '`&&` runs `cd build` only if `mkdir build` succeeded. If the folder already exists, `mkdir` fails and you stay where you are.',
+      kind: 'task',
+      prompt: 'In one line, create a folder called `reports` and move into it, but only move if the folder really was created.',
+      hint: 'Use the operator that runs the second command only when the first one succeeded.',
+      solution: ['mkdir reports && cd reports'],
+      explain: '`&&` runs `cd reports` only if `mkdir reports` succeeded. Had the folder already existed, `mkdir` would have failed and you would have stayed where you were.',
+      check: all(lineMatches(/&&/), ran('mkdir', { status: 0 }), cwdIs('~/reports')),
     },
   ],
   recap: `
@@ -364,6 +401,13 @@ const customAliasInBashrc: Check = (c) => {
 
 /** ~/.bashrc still has its original settings (it was appended to, not replaced). */
 const bashrcIntact = fileContains('.bashrc', /HISTSIZE=/);
+
+/** A line that defines `up` as `cd ..`, with the quotes it needs. */
+const UP_ALIAS_LINE = /^\s*alias\s+up=(['"])\s*cd\s+\.\.\/?\s*\1\s*(#.*)?$/m;
+
+/** The `up` alias is saved where new shells load it: ~/.bashrc, or ~/.bash_aliases (which ~/.bashrc reads). */
+const upAliasSaved: Check = (c) =>
+  UP_ALIAS_LINE.test(fileText(c, '.bashrc') ?? '') || (UP_ALIAS_LINE.test(fileText(c, '.bash_aliases') ?? '') && fileContains('.bashrc', '.bash_aliases')(c));
 
 export const customizing: Lesson = {
   id: 'customizing',
@@ -466,33 +510,47 @@ Aliases you type only last until the shell exits. To keep them, you write them i
   ],
   quiz: [
     {
-      prompt: 'Which line creates an alias called `now` that runs `date +%H:%M`?',
-      options: ["`alias now = 'date +%H:%M'`", "`now='date +%H:%M'`", '`alias now=date +%H:%M`', "`alias now='date +%H:%M'`"],
-      answer: 3,
+      kind: 'task',
+      prompt: 'Make an alias named `up` that runs `cd ..`, so that typing `up` takes you to the folder above the one you are in.',
+      hint: 'No spaces around the `=`, and quotes around `cd ..` so that it stays one piece of text.',
+      solution: ["alias up='cd ..'"],
       explain:
-        'As with variables, there are no spaces around the `=`, and the quotes keep `date +%H:%M` together as one piece of text. Without them `now` would stand for just `date`, and without the word `alias` you would create an ordinary variable instead.',
+        'Try it: `cd Documents`, then `up`. The shell swaps `up` for `cd ..` before running the line. Without the quotes, `alias up=cd ..` would make `up` stand for just `cd` (which takes you home) and complain that it can\'t find an alias called `..`.',
+      check: aliasIs('up', /^\s*cd\s+\.\.\/?\s*$/),
     },
     {
-      prompt: 'You want your `now` alias to exist in every new terminal you open. Which command does that?',
-      options: [
-        '`echo "alias now=\'date +%H:%M\'" > ~/.bashrc`',
-        '`echo "alias now=\'date +%H:%M\'" >> ~/.bashrc`',
-        "`alias now='date +%H:%M' >> ~/.bashrc`",
-        '`export now`',
-      ],
-      answer: 1,
-      explain: 'Every new terminal shell runs the lines in `~/.bashrc`, and `>>` adds yours to the end. A single `>` would replace the whole file with that one line, wiping out all your other settings.',
+      kind: 'task',
+      prompt: 'This computer has a command called `la`. Find out what it really runs.',
+      hint: 'One command tells you what any name really is, and another lists all your aliases.',
+      solution: ['type la'],
+      explain: '`la` is an alias for `ls -A`: list everything, including hidden files, but without `.` and `..`. Like `ll`, it is set up by `~/.bashrc`.',
+      check: any(
+        outputIncludes(/\bla(='ls -A'| is aliased to `ls -A')/),
+        // reading ~/.bashrc in a pager or editor (they draw on a screen of their own, so their output isn't captured)
+        ...['less', 'more', 'nano'].map((viewer) => ran(viewer, { status: 0, args: [/(^|\/)\.bashrc$/] })),
+      ),
     },
     {
-      kind: 'command',
-      prompt: "You just added an alias to the end of `~/.bashrc`. Type the command that makes the shell you're in read the file again, so the alias works right away.",
-      accept: ['source ~/.bashrc', '. ~/.bashrc', /^(source|\.) (~|\$HOME|\$\{HOME\}|\/home\/learner)\/\.bashrc$/, /^(source|\.) "(\$HOME|\$\{HOME\})\/\.bashrc"$/],
-      explain: '`source` runs the commands in a file inside the **current** shell, so the new alias sticks. A single dot does the same job: `. ~/.bashrc`.',
+      kind: 'task',
+      prompt: 'Make the `up` alias permanent, so that every new terminal you open has it too.',
+      hint: "Every new terminal reads a settings file in your home folder. Add a line to its end, and be careful not to replace what's already there.",
+      solution: [`echo "alias up='cd ..'" >> ~/.bashrc`],
+      explain:
+        'Every new terminal shell runs the lines in `~/.bashrc`, and `>>` added yours to the end. A single `>` would have replaced the whole file with that one line, wiping out all your other settings. (Adding the line with nano works just as well.)',
+      check: all(upAliasSaved, bashrcIntact),
+    },
+    {
+      kind: 'task',
+      prompt: "You have changed `~/.bashrc`. Make the shell you're in read it again right now, without opening a new terminal.",
+      hint: 'One command runs the lines of a file inside the current shell, as if you had typed them.',
+      solution: ['source ~/.bashrc'],
+      explain: '`source` runs the commands in a file inside the **current** shell, so whatever you added to it takes effect at once. A single dot does the same job: `. ~/.bashrc`.',
+      check: everRan('source', { aliases: ['.'], args: [/(^|\/)\.bashrc$/] }),
     },
     {
       prompt: "You are the user `learner`, in the folder `/home/learner/Documents`, and you set `PS1='\\u:\\W\\$ '`. What does your prompt look like now?",
-      options: ['`learner:Documents$`', '`learner:~/Documents$`', '`learner@sandbox:Documents$`', '`\\u:\\W\\$`'],
-      answer: 0,
+      options: ['`learner:~/Documents$`', '`learner@sandbox:Documents$`', '`\\u:\\W\\$`', '`learner:Documents$`'],
+      answer: 3,
       explain: '`\\u` shows your user name, `\\W` only the last part of the current folder (`\\w` would show `~/Documents`), and `\\$` a `$` sign, because you are not root.',
     },
   ],

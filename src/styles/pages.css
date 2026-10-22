@@ -318,9 +318,65 @@
   margin: 0;
   padding: 0;
 }
+.quiz-intro p {
+  color: var(--fg-muted);
+  font-size: 14px;
+}
+.quiz-buttons {
+  display: flex;
+  gap: 8px;
+}
 .quiz-q {
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
+  border-left: 2px solid transparent;
+}
+.quiz-q.current {
+  border-left-color: var(--accent);
+  background: var(--bg-hover);
+  padding-right: 10px;
+}
+.quiz-q.upcoming {
+  display: grid;
+  grid-template-columns: 2.6em minmax(0, 1fr);
+  padding: 6px 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.quiz-q .step-actions,
+.quiz-q .step-hint {
+  margin-left: 2.6em;
+}
+.quiz-waiting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 0 2.6em;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--accent);
+}
+.quiz-solution {
+  margin: 4px 0 0;
+  padding-left: 1.4em;
+}
+.quiz-solution-label {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--fg-muted);
+}
+.quiz-tip-title {
+  display: block;
+  margin: 4px 0 2px;
+}
+.mobile-only {
+  display: none;
+}
+@media (max-width: 900px) {
+  .mobile-only {
+    display: inline-flex;
+  }
 }
 .quiz-prompt {
   display: grid;
@@ -385,35 +441,6 @@
 .quiz-option.wrong .quiz-letter {
   color: var(--danger);
 }
-.quiz-command {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 10px 0 0 2.6em;
-  padding: 0 4px 0 10px;
-  border: 1px solid var(--line-strong);
-  font-family: var(--font-mono);
-  font-size: 13.5px;
-}
-.quiz-command:focus-within {
-  border-color: var(--accent);
-}
-.quiz-dollar {
-  color: var(--fg-faint);
-}
-.quiz-command input {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-}
-.quiz-command input:disabled {
-  color: var(--fg-muted);
-}
 .quiz-result {
   margin: 10px 0 0 2.6em;
   padding-left: 12px;
@@ -422,6 +449,12 @@
 }
 .quiz-result.wrong {
   border-left-color: var(--danger);
+}
+.quiz-result.revealed {
+  border-left-color: var(--line-strong);
+}
+.quiz-result.revealed .quiz-verdict {
+  color: var(--fg-muted);
 }
 .quiz-verdict {
   display: block;
@@ -432,9 +465,6 @@
 }
 .quiz-result.wrong .quiz-verdict {
   color: var(--danger);
-}
-.quiz-model {
-  margin: 0 0 4px;
 }
 .quiz-score {
   display: flex;

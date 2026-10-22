@@ -1331,8 +1331,7 @@ function literalOf(parts: WordPart[]): string {
 
 function applyTilde(word: Word, assignment: boolean): void {
   const first = word.parts[0];
-  if (!first || first.type !== 'lit') return;
-  const v = first.value;
+  const v = first?.type === 'lit' ? first.value : '';
   if (v.startsWith('~')) {
     const slash = v.indexOf('/');
     const colon = assignment ? v.indexOf(':') : -1;

@@ -18,6 +18,8 @@ export interface SessionOptions {
   user?: string;
   /** 'welcome' (default), 'none', or custom text printed at startup. */
   banner?: string;
+  /** Print Ubuntu's "To run a command as administrator" hint after the banner (default true). */
+  adminHint?: boolean;
   /** Persisted history lines to start with. */
   history?: string[];
   /** Folder (relative to home, or absolute) to start in. */
@@ -166,7 +168,7 @@ export class Session {
     if (banner === 'welcome') await this.print(WELCOME);
     else if (banner !== 'none') await this.print(banner);
     const user = this.system.userByName(this.username);
-    if (user && user.uid !== 0 && banner !== 'none') {
+    if (user && user.uid !== 0 && banner !== 'none' && this.opts.adminHint !== false) {
       const fs = this.system.fs;
       const creds = this.system.credsFor(user);
       const inSudo = this.system.groupIdsOf(user).includes(this.system.groupByName('sudo')?.gid ?? 27);

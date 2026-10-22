@@ -1,16 +1,17 @@
 import type { Terminal } from '@xterm/xterm';
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Markdown } from '../components/Markdown';
-import { Quiz } from '../components/Quiz';
+import { QuizPanel } from '../components/Quiz';
 import { usePageTitle } from '../components/usePageTitle';
 import { lessonById, moduleOf, neighbours, LESSONS } from '../lessons';
 import { coach, type Tip } from '../lessons/coach';
 import { LessonRunner, buildLessonSystem } from '../lessons/engine';
+import { QuizRunner, buildQuizSystem, savedEntries } from '../lessons/quiz';
 import type { Lesson, SolutionAction, Step } from '../lessons/types';
 import { Link, navigate } from '../router';
 import { createSystem } from '../shell';
 import { clearMachine, loadMachine, saveMachine } from '../state/disk';
-import { lessonProgress, markSteps, resetLessonProgress, useProgress } from '../state/progress';
+import { lessonProgress, markSteps, resetLessonProgress, setQuizEntries, useProgress } from '../state/progress';
 import { TerminalView } from '../terminal/TerminalView';
 import { createLiveSession, useLiveSession, type LiveSession } from '../terminal/useSession';
 import { NotFound } from './NotFound';
@@ -27,6 +28,26 @@ function makeSession(lesson: Lesson): LiveSession {
   });
 }
 
+const quizKey = (id: string) => `t4d.quiz.${id}.v1`;
+
+/** The quiz's terminal: a fresh copy of the lesson's computer (or the saved one, mid-quiz). */
+function makeQuizSession(lesson: Lesson): LiveSession {
+  const saved = loadMachine(quizKey(lesson.id));
+  return createLiveSession({
+    makeSystem: () => (saved ? createSystem({ snapshot: saved.fs }) : buildQuizSystem(lesson)),
+    banner: saved ? 'none' : `\x1b[2mQuiz: ${lesson.title}. This is a fresh copy of the lesson's files.\nAnswer each question by doing it here.\x1b[0m\n\n`,
+    adminHint: false,
+    history: saved?.history,
+    startDir: saved?.cwd ?? lesson.quizStartDir ?? lesson.startDir,
+  });
+}
+
+/** A quiz was started and has unanswered questions. */
+function quizInProgress(lesson: Lesson): boolean {
+  const entries = savedEntries(lesson.quiz ?? [], lessonProgress(lesson.id)?.quiz);
+  return !!entries && entries.some((e) => e === null);
+}
+
 function solutionText(a: SolutionAction): string {
   return typeof a === 'string' ? a : a.label;
 }
@@ -39,12 +60,17 @@ export function LessonPage({ lessonId }: { lessonId: string }) {
 
 function LessonView({ lesson }: { lesson: Lesson }) {
   usePageTitle(lesson.title);
-  useProgress();
+  const progress = useProgress();
   const mod = moduleOf(lesson);
   const { prev, next } = neighbours(lesson);
+  const quiz = useMemo(() => lesson.quiz ?? [], [lesson]);
+  // the terminal runs either the lesson's computer or the quiz's
+  const [mode, setMode] = useState<'lesson' | 'quiz'>(() => (quizInProgress(lesson) ? 'quiz' : 'lesson'));
   const [generation, setGeneration] = useState(0);
-  const live = useLiveSession(`${lesson.id}:${generation}`, () => makeSession(lesson));
+  const live = useLiveSession(`${lesson.id}:${mode}:${generation}`, () => (mode === 'quiz' ? makeQuizSession(lesson) : makeSession(lesson)));
   const [runner, setRunner] = useState<LessonRunner | null>(null);
+  const [quizRunner, setQuizRunner] = useState<QuizRunner | null>(null);
+  const [quizTip, setQuizTip] = useState<Tip | null>(null);
   const [, rerender] = useReducer((x: number) => x + 1, 0);
   const [tip, setTip] = useState<Tip | null>(null);
   const [mobileTab, setMobileTab] = useState<'lesson' | 'terminal'>('lesson');
@@ -55,7 +81,7 @@ function LessonView({ lesson }: { lesson: Lesson }) {
   const saveTimer = useRef(0);
 
   useEffect(() => {
-    if (!live) return;
+    if (!live || mode !== 'lesson') return;
     const saved = lessonProgress(lesson.id);
     const r = new LessonRunner(lesson, live.session, generation === 0 ? saved?.steps ?? [] : []);
     const sys = live.system;
@@ -97,7 +123,37 @@ function LessonView({ lesson }: { lesson: Lesson }) {
       sys.hooks.onPrompt = undefined;
       window.clearTimeout(saveTimer.current);
     };
-  }, [live, lesson, generation]);
+  }, [live, lesson, generation, mode]);
+
+  useEffect(() => {
+    if (!live || mode !== 'quiz' || quiz.length === 0) return;
+    const r = new QuizRunner(quiz, live.session, savedEntries(quiz, lessonProgress(lesson.id)?.quiz));
+    const sys = live.system;
+    const persist = () => {
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = window.setTimeout(() => saveMachine(quizKey(lesson.id), sys, live.session.history.entries, live.session.shell.state.cwd), 300);
+    };
+    sys.hooks.onCommand = (ev) => {
+      const before = r.currentIndex;
+      r.onCommand(ev);
+      // explain errors (command not found, permission denied…) while a question is still open
+      const t = coach(ev, live.session.shell);
+      setQuizTip(r.currentIndex === before && t?.kind === 'error' ? t : null);
+      persist();
+    };
+    sys.hooks.onEditorEvent = (e) => r.onEditorEvent(e);
+    const off = r.subscribe(() => {
+      setQuizEntries(lesson.id, r.entries);
+      rerender();
+    });
+    setQuizRunner(r);
+    return () => {
+      off();
+      sys.hooks.onCommand = undefined;
+      sys.hooks.onEditorEvent = undefined;
+      window.clearTimeout(saveTimer.current);
+    };
+  }, [live, lesson, mode, quiz]);
 
   useEffect(() => {
     if (!toast) return;
@@ -111,17 +167,46 @@ function LessonView({ lesson }: { lesson: Lesson }) {
     return () => window.clearTimeout(t);
   }, [notice]);
 
-  const currentIndex = runner?.currentIndex ?? 0;
-  const done = runner?.done ?? false;
+  // in quiz mode the steps just show what was done earlier
+  const lessonRunner = mode === 'lesson' ? runner : null;
+  const activeQuiz = mode === 'quiz' ? quizRunner : null;
+  const completed = lessonRunner ? lessonRunner.completed : new Set(progress.lessons[lesson.id]?.steps ?? []);
+  const currentIndex = lessonRunner ? lessonRunner.currentIndex : -1;
+  const done = lessonRunner ? lessonRunner.done : !!progress.lessons[lesson.id]?.done;
+  const quizIndex = activeQuiz?.currentIndex ?? -1;
 
   // keep the current step in view
   useEffect(() => {
     const el = panelRef.current?.querySelector('.step.current, .lesson-complete');
-    if (el && runner && runner.completed.size > 0) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }, [currentIndex, done, runner]);
+    if (el && lessonRunner && lessonRunner.completed.size > 0) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [currentIndex, done, lessonRunner]);
+
+  // and the current quiz question
+  useEffect(() => {
+    if (!activeQuiz) return;
+    const el = panelRef.current?.querySelector('.quiz-q.current, .quiz-score');
+    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [quizIndex, activeQuiz]);
+
+  const startQuiz = () => {
+    clearMachine(quizKey(lesson.id));
+    setQuizEntries(lesson.id, quiz.map(() => null));
+    setQuizTip(null);
+    setMode('quiz');
+    setGeneration((g) => g + 1);
+  };
+
+  const restartQuiz = () => {
+    if (!window.confirm('Start the quiz over? Your answers and the quiz files will be reset.')) return;
+    startQuiz();
+  };
 
   const typeCommand = (cmd: string) => {
     if (!live) return;
+    if (mode === 'quiz') {
+      setNotice('The terminal is running the quiz. Leave the quiz to try the lesson’s commands.');
+      return;
+    }
     if (live.session.isBusy) {
       setNotice('A command is still running. Finish it or press Ctrl+C first.');
       return;
@@ -139,7 +224,7 @@ function LessonView({ lesson }: { lesson: Lesson }) {
     setGeneration((g) => g + 1);
   };
 
-  const completedCount = runner ? lesson.steps.filter((s) => runner.completed.has(s.id)).length : 0;
+  const completedCount = lesson.steps.filter((s) => completed.has(s.id)).length;
   const lessonNumber = LESSONS.indexOf(lesson) + 1;
   const indexInModule = mod.lessons.indexOf(lesson) + 1;
 
@@ -182,12 +267,12 @@ function LessonView({ lesson }: { lesson: Lesson }) {
               key={s.id}
               step={s}
               index={i}
-              state={runner?.completed.has(s.id) ? 'done' : i === currentIndex ? 'current' : 'todo'}
-              justDone={runner?.justCompleted === s.id}
+              state={completed.has(s.id) ? 'done' : i === currentIndex ? 'current' : 'todo'}
+              justDone={lessonRunner?.justCompleted === s.id}
               tip={i === currentIndex ? tip : null}
               onDismissTip={() => setTip(null)}
               onRun={typeCommand}
-              onSkip={() => runner?.skip(s.id)}
+              onSkip={() => lessonRunner?.skip(s.id)}
             />
           ))}
         </ol>
@@ -219,7 +304,18 @@ function LessonView({ lesson }: { lesson: Lesson }) {
           </section>
         )}
 
-        {lesson.quiz && lesson.quiz.length > 0 && <Quiz lessonId={lesson.id} questions={lesson.quiz} />}
+        {quiz.length > 0 && (
+          <QuizPanel
+            questions={quiz}
+            entries={savedEntries(quiz, progress.lessons[lesson.id]?.quiz)}
+            runner={activeQuiz}
+            tip={quizTip}
+            onStart={startQuiz}
+            onResume={() => setMode('quiz')}
+            onLeave={() => setMode('lesson')}
+            onShowTerminal={() => setMobileTab('terminal')}
+          />
+        )}
 
         {done && (
           <div className="lesson-next">
@@ -243,15 +339,26 @@ function LessonView({ lesson }: { lesson: Lesson }) {
       <section className="lesson-term" aria-label="Terminal">
         {live && (
           <TerminalView
-            key={generation}
+            key={`${mode}:${generation}`}
             backend={live.backend}
             system={live.system}
-            initialTitle="learner@sandbox: ~"
+            initialTitle={mode === 'quiz' ? 'quiz' : 'learner@sandbox: ~'}
             onReady={(t) => (termRef.current = t)}
             actions={
-              <button type="button" onClick={reset} title="Start this lesson over">
-                reset
-              </button>
+              mode === 'quiz' ? (
+                <>
+                  <button type="button" onClick={() => setMode('lesson')} title="Back to the lesson's terminal (your quiz answers are kept)">
+                    leave quiz
+                  </button>
+                  <button type="button" onClick={restartQuiz} title="Start the quiz over">
+                    restart quiz
+                  </button>
+                </>
+              ) : (
+                <button type="button" onClick={reset} title="Start this lesson over">
+                  reset
+                </button>
+              )
             }
           />
         )}

@@ -1,14 +1,15 @@
 // Lesson progress, saved in localStorage.
 
 import { useSyncExternalStore } from 'react';
+import type { QuizEntry } from '../lessons/quiz';
 import { safeGet, safeRemove, safeSet } from './prefs';
 
 export interface LessonProgress {
   steps: string[];
   done: boolean;
   updated: number;
-  /** Quiz answers by question number: an option index or the typed command. */
-  quiz?: (number | string | null)[];
+  /** Quiz results by question number (null: not answered yet). Present once the quiz was started. */
+  quiz?: (QuizEntry | null)[];
 }
 
 export interface ProgressState {
@@ -51,12 +52,10 @@ export function markSteps(lessonId: string, steps: string[], done: boolean): voi
   commit({ lessons: { ...state.lessons, [lessonId]: { ...prev, steps: merged, done: prev?.done || done, updated: Date.now() } } });
 }
 
-/** Record the answer to quiz question `index` (of `total`). */
-export function setQuizAnswer(lessonId: string, index: number, total: number, answer: number | string): void {
+/** Save a lesson's quiz results. */
+export function setQuizEntries(lessonId: string, quiz: (QuizEntry | null)[]): void {
   const prev = state.lessons[lessonId];
-  const quiz = Array.from({ length: total }, (_, i) => prev?.quiz?.[i] ?? null);
-  quiz[index] = answer;
-  commit({ lessons: { ...state.lessons, [lessonId]: { steps: prev?.steps ?? [], done: prev?.done ?? false, updated: Date.now(), quiz } } });
+  commit({ lessons: { ...state.lessons, [lessonId]: { steps: prev?.steps ?? [], done: prev?.done ?? false, updated: Date.now(), quiz: [...quiz] } } });
 }
 
 /** Clear a lesson's quiz answers so it can be taken again. */

@@ -1,7 +1,9 @@
 // Module 3: Working with files.
 
+import type { ExecEvent } from '../../shell/system';
 import { ROOT_CREDS } from '../../shell/vfs/fs';
-import { all, any, cwdIs, fileContains, isDir, isFile, lineMatches, missing, ran } from '../checks';
+import { resolvePath } from '../../shell/vfs/path';
+import { abs, all, any, cwdIs, exists, fileContains, flagsOf, isDir, isFile, lineMatches, missing, operandsOf, outputIncludes, ran } from '../checks';
 import type { CheckContext, Lesson, LessonSetupEnv } from '../types';
 
 type Check = (c: CheckContext) => boolean;
@@ -29,6 +31,45 @@ function listed(want: (string | RegExp)[]): Check {
       const names = e.argv.slice(1).map(base);
       return want.every((w) => names.some((n) => (typeof w === 'string' ? n === w : w.test(n))));
     });
+}
+
+/** The last command ran ls or echo with exactly these names (after the shell expanded any pattern). */
+function listedExactly(want: string[]): Check {
+  return (c) =>
+    !!c.ev &&
+    c.ev.execs.some((e) => {
+      if (e.kind === 'not-found' || !['ls', 'echo'].includes(base(e.argv[0]))) return false;
+      const names = operandsOf(e).map(base);
+      return names.length === want.length && want.every((w) => names.includes(w));
+    });
+}
+
+/** The arguments of a command that aren't options, as absolute paths. */
+function targets(e: ExecEvent): string[] {
+  return operandsOf(e).map((a) => resolvePath(e.cwd, a));
+}
+
+/**
+ * The last command listed the folder `path` with ls (named as an argument, or
+ * the folder ls ran in when it got none), with one option from each group.
+ */
+function listsFolder(path: string, ...groups: string[][]): Check {
+  const want = abs(path);
+  return (c) =>
+    !!c.ev &&
+    c.ev.execs.some((e) => {
+      if (e.kind === 'not-found' || base(e.argv[0]) !== 'ls') return false;
+      const paths = targets(e);
+      if (paths.length === 0 ? e.cwd !== want : !paths.includes(want)) return false;
+      const flags = flagsOf(e);
+      return !flags.has('d') && groups.every((g) => g.some((f) => flags.has(f)));
+    });
+}
+
+/** Since the question came up, `rm -i` was run on the file at `path`. */
+function askedToRemove(path: string): Check {
+  const want = abs(path);
+  return (c) => c.commands.some((ev) => ev.execs.some((e) => base(e.argv[0]) === 'rm' && flagsOf(e).has('i') && targets(e).includes(want)));
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +163,22 @@ A few things worth knowing about names on Linux:
   ],
   quiz: [
     {
+      kind: 'task',
+      prompt: 'In your home folder, create a folder `party` with a folder `music` inside it, and a folder `playlists` inside that, all with a single command.',
+      hint: "Plain `mkdir` won't create missing folders along the way, but one option makes it create every *parent* folder it needs.",
+      solution: ['mkdir -p party/music/playlists'],
+      explain: '`-p` (*parents*) creates every missing folder along the path, so `party`, `party/music` and `party/music/playlists` all appear at once.',
+      check: isDir('party/music/playlists'),
+    },
+    {
+      kind: 'task',
+      prompt: 'Inside `party`, create two empty files: `guests.txt` and `menu.txt`.',
+      hint: 'The command that creates empty files takes several names at once. Either step into `party` first, or put `party/` in front of each name.',
+      solution: ['touch party/guests.txt party/menu.txt'],
+      explain: '`touch` creates an empty file for every name it gets. A name can be a path, like `party/menu.txt`, so you can create files in a folder without going there.',
+      check: all(isFile('party/guests.txt'), isFile('party/menu.txt')),
+    },
+    {
       prompt: 'What does `touch my notes.txt` create?',
       options: [
         'Two empty files, called `my` and `notes.txt`',
@@ -134,32 +191,21 @@ A few things worth knowing about names on Linux:
         'The shell splits the line at every space, so `touch` receives two names and makes two files. To keep the space in one name, use quotes (`touch "my notes.txt"`) or a backslash (`touch my\\ notes.txt`).',
     },
     {
-      prompt: 'Why did this fail?\n\n```\nlearner@sandbox:~/trip$ mkdir photos/beach\nmkdir: cannot create directory ‘photos/beach’: No such file or directory\n```',
-      options: [
-        "Folder names can't contain a `/`",
-        "There's already a folder called `beach`",
-        'You have to `cd photos` before you can make `beach`',
-        "`photos` doesn't exist yet, and plain `mkdir` won't create it",
-      ],
-      answer: 3,
-      explain: "`mkdir` only makes the last folder in the path, and it won't invent the missing `photos`. Add `-p` (*parents*) to create every missing folder along the way: `mkdir -p photos/beach`.",
+      kind: 'task',
+      prompt: 'Also in `party`, create one empty file called `shopping list.txt`, with a space in its name.',
+      hint: 'Left alone, the shell would split the name at the space and make two files. Quotes or a backslash keep it in one piece.',
+      solution: ['touch "party/shopping list.txt"'],
+      explain:
+        'Quotes (`"party/shopping list.txt"`) or a backslash in front of the space (`party/shopping\\ list.txt`) keep the name in one piece. <kbd>Tab</kbd> adds that backslash for you whenever it completes a name with a space.',
+      check: isFile('party/shopping list.txt'),
     },
     {
-      prompt: 'Which command lists this folder **and** every folder inside it, all the way down?',
-      options: ['`ls -r`', '`ls -R`', '`ls -a`', '`ls -l`'],
-      answer: 1,
-      explain: '`-R` (a capital R) means **recursive**: list this folder, then every folder inside it, and so on. Lowercase `-r` means something else: *reverse the order*.',
-    },
-    {
-      kind: 'command',
-      prompt: 'Create one empty file called `summer plans.txt`, with a space in its name.',
-      accept: [
-        'touch "summer plans.txt"',
-        "touch 'summer plans.txt'",
-        'touch summer\\ plans.txt',
-        /^touch (?:"summer plans"\.txt|'summer plans'\.txt|summer" "plans\.txt|summer' 'plans\.txt)$/,
-      ],
-      explain: "Quotes keep the space inside one name, and so does a backslash in front of it: `touch summer\\ plans.txt`. Without either, you'd get two files, `summer` and `plans.txt`.",
+      kind: 'task',
+      prompt: "Show everything that's in `party`, including what's inside each folder in it, all the way down.",
+      hint: 'One option makes `ls` go into every folder it finds. It is a capital letter.',
+      solution: ['ls -R party'],
+      explain: '`-R` (*recursive*) lists the folder, then every folder inside it, all the way down. Lowercase `-r` would only reverse the order.',
+      check: listsFolder('party', ['R']),
     },
   ],
   recap: `
@@ -297,17 +343,30 @@ cp  report.txt  report-backup.txt
       check: any(ran('cp', { flags: 'i' }), ran('mv', { flags: 'i' })),
     },
   ],
+  quizSetup: (env) => {
+    env.file('office/budget.txt', 'Office budget\nPaper: 20.00\nCoffee: 95.00\nPlants: 30.00\n', { daysAgo: 2 });
+    env.file('office/notes.txt', 'Monday meeting\n- Order more coffee\n- Water the plants\n', { daysAgo: 2 });
+    const jpeg = 'JPEG image data, JFIF standard 1.01, resolution (DPI), density 72x72, segment length 16, baseline, precision 8, 4032x3024, components 3';
+    binary(env, 'office/photos/team.jpg', jpeg, 2_310_442, 30);
+    binary(env, 'office/photos/2025/picnic.jpg', jpeg, 2_587_120, 120);
+    env.dir('office/archive');
+  },
   quiz: [
     {
-      prompt: "Why did this happen?\n\n```\nlearner@sandbox:~/office$ cp website website-old\ncp: -r not specified; omitting directory 'website'\n```",
-      options: [
-        "`website-old` doesn't exist yet, so there's nowhere to copy to",
-        'Folders can only be moved with `mv`, never copied',
-        '`website` is a folder, and `cp` only copies folders when you add `-r`',
-        'The folder is too big to copy in one go',
-      ],
-      answer: 2,
-      explain: "`cp` copies a folder only with `-r` (*recursive*), as in `cp -r website website-old`. The destination doesn't need to exist yet: `cp` creates it.",
+      kind: 'task',
+      prompt: 'Before anyone changes the budget, make a copy of `budget.txt` called `budget-old.txt`.',
+      hint: 'The copy command takes the original first and the new name last.',
+      solution: ['cp budget.txt budget-old.txt'],
+      explain: '`cp` leaves the original alone and writes an identical copy under the new name. The source comes first, the destination last.',
+      check: all(isFile('office/budget.txt'), fileContains('office/budget-old.txt', 'Office budget')),
+    },
+    {
+      kind: 'task',
+      prompt: "`notes.txt` holds the notes from Monday's meeting. Rename it to `monday-notes.txt`.",
+      hint: 'In the terminal, renaming means *moving* a file to a new name.',
+      solution: ['mv notes.txt monday-notes.txt'],
+      explain: '`mv OLD NEW` renames: afterwards only `monday-notes.txt` exists, with the same contents. Unlike `cp`, it leaves nothing behind.',
+      check: all(missing('office/notes.txt'), fileContains('office/monday-notes.txt', 'Monday meeting')),
     },
     {
       prompt: '`backup` already holds a file called `letter.txt`. What happens when you run `cp letter.txt backup/`?',
@@ -321,24 +380,32 @@ cp  report.txt  report-backup.txt
       explain: '`cp` and `mv` replace an existing file silently, and the old version is gone for good. Add `-i` to be asked first: `cp -i letter.txt backup/`.',
     },
     {
-      prompt: 'You run `mv draft.txt speech.txt`. What is true afterwards?',
-      options: [
-        'Only `speech.txt` exists, holding what used to be in `draft.txt`',
-        'Both files exist, with the same contents',
-        'Only `draft.txt` exists, now holding what was in `speech.txt`',
-        '`speech.txt` is a new folder, with `draft.txt` inside it',
-      ],
-      answer: 0,
-      explain: 'With two names, `mv` renames: the old name comes first and the new name last. Unlike `cp`, it leaves nothing behind.',
+      kind: 'task',
+      prompt: 'Tidy up: move both invoices into the `archive` folder.',
+      hint: '`mv` takes as many names as you like, as long as the folder comes last.',
+      solution: ['mv invoice-march.txt invoice-april.txt archive/'],
+      explain: 'With more than two names, `mv` moves everything into the last one, which has to be a folder. In a later lesson, wildcards will let you type that as `mv invoice-* archive/`.',
+      check: all(
+        isFile('office/archive/invoice-march.txt'),
+        isFile('office/archive/invoice-april.txt'),
+        missing('office/invoice-march.txt'),
+        missing('office/invoice-april.txt'),
+      ),
     },
     {
-      kind: 'command',
+      kind: 'task',
       prompt: 'Copy the folder `photos`, with everything inside it, to a new folder called `photos-backup`.',
-      accept: [
-        'cp -r photos photos-backup',
-        /^cp(?=.*(?: -[a-zA-Z]*[rRa]| --recursive(?: |$)| --archive(?: |$)))(?: (?:-[rRaivfnpu]+|--recursive|--archive))* photos\/? photos-backup\/?(?: (?:-[rRaivfnpu]+|--recursive|--archive))*$/,
-      ],
-      explain: 'Folders need `-r` (*recursive*), so that `cp` copies everything inside them, all the way down. As always, the source comes first and the destination last.',
+      hint: 'Folders need one extra option, so that `cp` copies everything inside them, all the way down.',
+      solution: ['cp -r photos photos-backup'],
+      explain: '`cp -r` (*recursive*) copies the folder, the folders inside it and every file in them. Without `-r`, `cp` refuses to copy a folder at all.',
+      check: all(
+        isFile('office/photos/team.jpg'),
+        any(
+          all(isFile('office/photos-backup/team.jpg'), isFile('office/photos-backup/2025/picnic.jpg')),
+          // copied into a photos-backup folder made beforehand
+          all(isFile('office/photos-backup/photos/team.jpg'), isFile('office/photos-backup/photos/2025/picnic.jpg')),
+        ),
+      ),
     },
   ],
   recap: `
@@ -454,7 +521,53 @@ Deleting needs only two commands, \`rm\` and \`rmdir\`:
       check: ran('rm', { flags: 'f' }),
     },
   ],
+  quizSetup: (env) => {
+    env.file('attic/broken-radio.txt', "Doesn't work. Never did.\n", { daysAgo: 800 });
+    env.dir('attic/shoebox');
+    env.file('attic/old-toys/teddy-bear.txt', 'One eye missing, still loved.\n', { daysAgo: 1100 });
+    env.file('attic/old-toys/cars/red-car.txt', 'Very fast, no wheels left.\n', { daysAgo: 1100 });
+    env.file('attic/old-toys/cars/blue-car.txt', 'Slow, but all four wheels.\n', { daysAgo: 1100 });
+    env.file('attic/draft1.txt', 'Dear diary, today I cleaned the attic.\n', { daysAgo: 10 });
+    env.file('attic/draft2.txt', 'Dear diary, today I cleaned the attic again.\n', { daysAgo: 9 });
+  },
   quiz: [
+    {
+      kind: 'task',
+      prompt: 'Delete `broken-radio.txt`. Nobody will miss it.',
+      hint: 'The command is short for *remove*.',
+      solution: ['rm broken-radio.txt'],
+      explain: '`rm` deleted the file straight away, without asking first. Run `ls` and you will see that it is gone.',
+      check: missing('attic/broken-radio.txt'),
+    },
+    {
+      kind: 'task',
+      prompt: 'The folder `shoebox` is empty. Remove it.',
+      hint: 'Plain `rm` refuses folders, but there is a command made just for removing empty ones.',
+      solution: ['rmdir shoebox'],
+      explain: '`rmdir` only ever removes empty folders, so it can never take any files with it. That makes it the safest choice for a folder that should be empty.',
+      check: missing('attic/shoebox'),
+    },
+    {
+      kind: 'task',
+      prompt: 'The folder `old-toys` has files and another folder inside it. Delete it, with everything in it.',
+      hint: "`rmdir` refuses folders that aren't empty, and `rm` needs an extra option to work its way through a whole folder.",
+      solution: ['rm -r old-toys'],
+      explain:
+        '`rm -r` (*recursive*) deleted the folder, the folder inside it and every file in them, without a single question. Looking inside first, with `ls -R`, is the habit that protects you.',
+      check: missing('attic/old-toys'),
+    },
+    {
+      kind: 'task',
+      prompt: 'Delete `draft1.txt` and `draft2.txt`, but have `rm` ask you before it deletes each one.',
+      hint: 'One option makes `rm` *interactive*. Then answer each question with `y` and <kbd>Enter</kbd>.',
+      solution: [
+        'rm -i draft1.txt draft2.txt',
+        { keys: 'y\r', label: 'Type y and press Enter to delete draft1.txt' },
+        { keys: 'y\r', label: 'Type y and press Enter to delete draft2.txt' },
+      ],
+      explain: 'With `-i`, `rm` asks about every file, and only an answer that starts with `y` deletes it. Anything else, even a plain <kbd>Enter</kbd>, keeps the file.',
+      check: all(askedToRemove('attic/draft1.txt'), askedToRemove('attic/draft2.txt'), missing('attic/draft1.txt'), missing('attic/draft2.txt')),
+    },
     {
       prompt: 'What happens to a file you delete with `rm`?',
       options: [
@@ -465,28 +578,6 @@ Deleting needs only two commands, \`rm\` and \`rmdir\`:
       ],
       answer: 1,
       explain: "`rm` removes the file's name and marks the space it used as free, and nothing goes to a Trash folder. The only real safety net is a backup.",
-    },
-    {
-      prompt:
-        "`rmdir` refused to delete this folder. Which command deletes it together with everything inside it?\n\n```\nlearner@sandbox:~/attic$ rmdir old-games\nrmdir: failed to remove 'old-games': Directory not empty\n```",
-      options: ['`rm old-games`', '`rmdir -r old-games`', '`rm -r old-games`'],
-      answer: 2,
-      explain: '`rmdir` only removes empty folders (it has no `-r`), and plain `rm` refuses folders altogether. `rm -r` deletes the folder and everything in it, so look inside with `ls -R` first.',
-    },
-    {
-      prompt: 'What does the `-f` in `rm -f` do?',
-      options: ['It asks before deleting each file', "It never asks, and stays quiet about files that don't exist", 'It lets `rm` delete folders, too'],
-      answer: 1,
-      explain: "`-f` (*force*) skips every question and hides errors such as *No such file or directory*. It doesn't let `rm` delete folders, though: that still takes `-r`.",
-    },
-    {
-      kind: 'command',
-      prompt: 'Delete `draft1.txt` and `draft2.txt`, but have `rm` ask before each one.',
-      accept: [
-        'rm -i draft1.txt draft2.txt',
-        /^rm(?=.*(?: -[a-zA-Z]*i| --interactive(?:=always)?(?: |$)))(?: (?:-[iv]+|--interactive(?:=always)?))* (?:draft1\.txt draft2\.txt|draft2\.txt draft1\.txt)(?: (?:-[iv]+|--interactive(?:=always)?))*$/,
-      ],
-      explain: '`-i` (*interactive*) makes `rm` ask about each file: an answer starting with `y` deletes it, and anything else keeps it.',
     },
   ],
   recap: `
@@ -515,6 +606,9 @@ Deleting needs only two commands, \`rm\` and \`rmdir\`:
 
 const PHOTOS = ['day1.jpg', 'day2.jpg', 'day3.jpg', 'day4.jpg', 'day10.jpg', 'day11.jpg'];
 const TEMP_FILES = ['upload1.tmp', 'upload2.tmp', 'thumbs.tmp'];
+// for the quiz
+const SONGS = ['song1.mp3', 'song2.mp3', 'song3.mp3', 'song12.mp3', 'song13.mp3'];
+const BAK_FILES = ['backup1.bak', 'backup2.bak', 'old.bak'];
 
 const wildcards: Lesson = {
   id: 'wildcards',
@@ -618,39 +712,59 @@ Typing every file name gets old fast. **Wildcards** are patterns that match many
       check: all(lineMatches(/['"\\]/), (c) => !!c.ev && c.ev.execs.some((e) => base(e.argv[0]) === 'echo' && e.argv.slice(1).some((a) => a.includes('*')))),
     },
   ],
+  quizSetup: (env) => {
+    SONGS.forEach((name, i) => {
+      binary(env, `phone/${name}`, 'Audio file with ID3 version 2.4.0, contains: MPEG ADTS, layer III, v1, 192 kbps, 44.1 kHz, JntStereo', 3_100_000 + i * 270_001, 30 - i);
+    });
+    binary(env, 'phone/cover.jpg', 'JPEG image data, JFIF standard 1.01, resolution (DPI), density 72x72, segment length 16, baseline, precision 8, 1200x1200, components 3', 412_830, 30);
+    env.file('phone/playlist.txt', SONGS.join('\n') + '\n', { daysAgo: 30 });
+    env.file('phone/notes.txt', 'Buy a bigger memory card.\n', { daysAgo: 12 });
+    for (const name of BAK_FILES) env.file(`phone/${name}`, '', { daysAgo: 60 });
+  },
+  quizStartDir: 'phone',
   quiz: [
     {
-      prompt: 'A folder holds `day1.jpg`, `day2.jpg`, `day10.jpg` and `day11.jpg`. Which pattern matches `day10.jpg` and `day11.jpg`, but **not** `day1.jpg` or `day2.jpg`?',
-      options: ['`day*.jpg`', '`day?.jpg`', '`*1.jpg`', '`day??.jpg`'],
-      answer: 3,
-      explain: 'Each `?` stands for exactly one character, so `day??.jpg` needs exactly two after `day`. `day?.jpg` matches just the one-digit days, `day*.jpg` matches all four, and `*1.jpg` matches `day1.jpg` and `day11.jpg`.',
+      kind: 'task',
+      prompt: 'With a single pattern, list only the songs that have a one-digit number (`song1.mp3` to `song3.mp3`), not the ones with two digits.',
+      hint: 'One of the wildcards stands for exactly one character.',
+      solution: ['ls song?.mp3'],
+      explain: '`?` matches exactly one character, so `song?.mp3` needs exactly one between `song` and `.mp3`, and `song12.mp3` has two there. `song[1-3].mp3` works too.',
+      check: all(lineMatches(/[?[]/), listedExactly(['song1.mp3', 'song2.mp3', 'song3.mp3'])),
     },
     {
-      prompt: 'Why does `echo *.tmp` show you exactly which files `rm *.tmp` would delete?',
+      kind: 'task',
+      prompt: 'The `.bak` files are leftovers. Delete all of them with one short command, and nothing else.',
+      hint: 'Use a pattern that means *anything, ending in .bak*. Preview it with `echo` first if you like.',
+      solution: ['rm *.bak'],
+      explain: 'The shell turned `rm *.bak` into `rm backup1.bak backup2.bak old.bak` before `rm` started. Running `echo *.bak` first shows you exactly that list, without deleting anything.',
+      check: all(...BAK_FILES.map((n) => missing(`phone/${n}`)), ...[...SONGS, 'cover.jpg', 'playlist.txt', 'notes.txt'].map((n) => exists(`phone/${n}`))),
+    },
+    {
+      prompt: 'Why does `echo *.bak` show you exactly which files `rm *.bak` would delete?',
       options: [
         '`echo` quietly runs `rm` in a safe test mode',
-        'The shell replaces `*.tmp` with the matching names before either command starts',
         '`echo` and `rm` each look for matching files themselves, using the same rules',
+        'The shell replaces `*.bak` with the matching names before either command starts',
       ],
-      answer: 1,
+      answer: 2,
       explain: 'Wildcards are expanded by the **shell**, so `echo` and `rm` receive exactly the same list of names. `echo` just prints that list, while `rm` deletes everything on it.',
     },
     {
-      prompt: "What does this print?\n\n```\necho '5 * 3'\n```",
-      options: ['`5 * 3`', '`15`', "`'5 * 3'`", '`5`, then the names of the files in the folder, then `3`'],
-      answer: 0,
-      explain: 'Inside single quotes the shell leaves everything alone, so `*` stays a plain star, and the quotes are removed before `echo` runs. Without them, the `*` would turn into the names of the files in the folder (and `echo` never does arithmetic).',
+      kind: 'task',
+      prompt: 'Make a folder `sorted` with three folders inside it, `music`, `photos` and `notes`, in one command. Use braces, so that you type `sorted/` only once.',
+      hint: 'Inside `{ }`, separate the names with commas and no spaces. `mkdir` also needs an option to create `sorted` along the way.',
+      solution: ['mkdir -p sorted/{music,photos,notes}'],
+      explain: 'The shell turned `sorted/{music,photos,notes}` into `sorted/music sorted/photos sorted/notes` before `mkdir` ran, and `-p` created the missing `sorted` folder as well.',
+      check: all(lineMatches(/\{[^}]*,[^}]*\}/), isDir('phone/sorted/music'), isDir('phone/sorted/photos'), isDir('phone/sorted/notes')),
     },
     {
-      kind: 'command',
-      prompt: "`site` doesn't exist yet. In one command, create it with three folders inside: `css`, `js` and `img`. Use braces.",
-      accept: [
-        'mkdir -p site/{css,js,img}',
-        /^mkdir (?:-p|--parents) (?:site\/? )?site\/\{(?:css,js,img|css,img,js|js,css,img|js,img,css|img,css,js|img,js,css)\}\/?$/,
-        /^mkdir (?:site\/? )?site\/\{(?:css,js,img|css,img,js|js,css,img|js,img,css|img,css,js|img,js,css)\}\/? (?:-p|--parents)$/,
-        /^mkdir site\/? site\/\{(?:css,js,img|css,img,js|js,css,img|js,img,css|img,css,js|img,js,css)\}\/?$/,
-      ],
-      explain: 'The shell turns `site/{css,js,img}` into `site/css site/js site/img` before `mkdir` runs, and `-p` creates the missing `site` folder along the way. Keep the braces free of spaces.',
+      kind: 'task',
+      prompt: 'Make the terminal print exactly this line, star included: `3 * 4 = 12`',
+      hint: 'Left alone, the shell swaps `*` for the names of the files here. Quotes switch that off.',
+      solution: ["echo '3 * 4 = 12'"],
+      explain:
+        'Inside single quotes the shell leaves everything alone, so `*` stays a star. Double quotes work too, and so does a backslash in front of the star (`3 \\* 4`).',
+      check: all(lineMatches(/['"\\]/), any(ran('echo'), ran('printf')), outputIncludes(/^3 \* 4 = 12$/m)),
     },
   ],
   recap: `

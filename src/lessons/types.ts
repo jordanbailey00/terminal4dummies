@@ -48,22 +48,24 @@ export interface ChoiceQuestion {
   explain: string;
 }
 
-/** Type a command line; it is right if it matches one of `accept`. */
-export interface CommandQuestion {
-  kind: 'command';
-  /** Markdown. */
+/**
+ * Do something in the lesson's terminal; it is right once `check` passes.
+ * Checks use the same helpers as lesson steps, but `commands` and `keys`
+ * only hold what happened since this question came up.
+ */
+export interface TaskQuestion {
+  kind: 'task';
+  /** Markdown: what to do (never the exact command to type). */
   prompt: string;
-  /**
-   * Accepted answers: exact command lines (compared after trimming and
-   * collapsing spaces) or patterns. The first entry must be a string; it is
-   * shown as the model answer.
-   */
-  accept: [string, ...(string | RegExp)[]];
+  check: (c: CheckContext) => boolean;
+  /** One way to do it: revealed by "show answer" and played by the automated test. */
+  solution: SolutionAction[];
+  hint?: string;
   /** Markdown shown once answered. */
   explain: string;
 }
 
-export type QuizQuestion = ChoiceQuestion | CommandQuestion;
+export type QuizQuestion = ChoiceQuestion | TaskQuestion;
 
 export interface LessonSetupEnv {
   sys: System;
@@ -90,8 +92,15 @@ export interface Lesson {
   /** Text printed when the terminal starts (defaults to nothing). */
   banner?: string;
   steps: Step[];
-  /** Questions at the end of the lesson that test what it taught. */
+  /**
+   * Questions at the end of the lesson that test what it taught, mostly done
+   * in the terminal. The quiz gets a fresh copy of the lesson's computer.
+   */
   quiz?: QuizQuestion[];
+  /** Extra files (or changes) for the quiz's computer, applied after `setup`. */
+  quizSetup?: (env: LessonSetupEnv) => void;
+  /** Where the quiz starts (relative to home); defaults to `startDir`. */
+  quizStartDir?: string;
   /** Markdown recap shown when the lesson is complete. */
   recap: string;
   /** Commands covered: [command, what it does]. */

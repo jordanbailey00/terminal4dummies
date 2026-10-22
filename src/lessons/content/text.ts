@@ -1,14 +1,56 @@
 // Module: Pipes and power tools.
 
-import { all, any, missing, ran, lineMatches } from '../checks';
-import type { CheckContext, Lesson } from '../types';
+import { ROOT_CREDS } from '../../shell/vfs/fs';
+import { all, any, exists, missing, ran, lineMatches } from '../checks';
+import type { CheckContext, Lesson, LessonSetupEnv } from '../types';
 
 /** Every listed command ran as part of the same command line. */
 function pipeline(...names: string[]) {
   return (c: CheckContext) => !!c.ev && names.every((n) => c.ev!.execs.some((e) => e.argv[0]?.split('/').pop() === n));
 }
 
+const base = (path: string | undefined) => path?.split('/').pop() ?? '';
+
+/** The last command's output as trimmed, non-blank lines, with runs of spaces squeezed to one. */
+function outputLines(c: CheckContext): string[] {
+  return c.ev ? c.ev.output.split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean) : [];
+}
+
+/** The last command printed every one of `want` and none of `unwanted`. */
+function showsOnly(c: CheckContext, want: string[], unwanted: string[]): boolean {
+  if (!c.ev) return false;
+  const out = c.ev.output;
+  return want.every((l) => out.includes(l)) && !unwanted.some((l) => out.includes(l));
+}
+
+/** What `ls DIR` lists: every name in the folder except hidden ones. */
+function visibleNames(c: CheckContext, dir: string): string[] {
+  try {
+    return c.sys.fs.readdir(dir, { cwd: '/', creds: ROOT_CREDS }).filter((n) => !n.startsWith('.'));
+  } catch {
+    return [];
+  }
+}
+
+/** A binary file (a photo, a video...) of a given size, owned by the learner. */
+function blob(env: LessonSetupEnv, path: string, description: string, size: number, daysAgo: number): void {
+  env.dir(path.slice(0, path.lastIndexOf('/')));
+  const node = env.sys.fs.writeFile(`${env.home}/${path}`, { kind: 'blob', description, payload: null, size }, { cwd: '/', creds: ROOT_CREDS, umask: 0o002 }, { mode: 0o664 });
+  node.mode = 0o664;
+  node.uid = 1000;
+  node.gid = 1000;
+  node.mtime = node.atime = env.sys.now() - daysAgo * 86400 * 1000;
+}
+
 const NAMES = ['Zoe', 'adam', 'Maya', 'Liam', 'zoe', 'Maya', 'Noah', 'Ava', 'Liam', 'Maya', 'Ella', 'Noah', 'Maya', 'Ava', 'Owen'];
+
+/** The quiz's ice cream vote: one flavor per line. */
+const VOTES = ['vanilla', 'chocolate', 'mint', 'strawberry', 'chocolate', 'lemon', 'vanilla', 'strawberry', 'chocolate', 'mint', 'strawberry', 'chocolate', 'vanilla', 'strawberry', 'chocolate'];
+
+const FLAVORS = [...new Set(VOTES)].sort();
+
+/** Each flavor with its number of votes, most votes first. */
+const RANKED = FLAVORS.map((flavor) => ({ flavor, votes: VOTES.filter((v) => v === flavor).length })).sort((a, b) => b.votes - a.votes);
 
 export const pipes: Lesson = {
   id: 'pipes',
@@ -86,30 +128,50 @@ ls /usr/bin  |  wc -l
       check: pipeline('ls', 'grep'),
     },
   ],
+  quizSetup: (env) => {
+    env.file('votes.txt', VOTES.join('\n') + '\n');
+  },
   quiz: [
     {
+      kind: 'task',
+      prompt: 'How many files and folders does `ls /etc` list? Instead of counting them yourself, connect `ls` to a command that counts.',
+      hint: 'Going into a pipe, `ls` prints one name per line. Which command counts lines?',
+      solution: ['ls /etc | wc -l'],
+      explain: 'The pipe hands everything `ls` prints to `wc -l`, which counts the lines it receives: one line for each name.',
+      check: (c) =>
+        !!c.ev &&
+        c.ev.execs.some((e) => base(e.argv[0]) === 'ls' && e.argv.some((a) => /^\/etc\/?$/.test(a))) &&
+        new RegExp(`^\\s*${visibleNames(c, '/etc').length}\\b`).test(c.ev.output),
+    },
+    {
+      kind: 'task',
+      prompt: '`votes.txt` holds the answers to *What is your favorite ice cream?*, one per line. Show each flavor only once, in alphabetical order.',
+      hint: '`uniq` only drops repeats that sit right next to each other, so get them next to each other first.',
+      solution: ['sort votes.txt | uniq'],
+      explain: '`sort` puts identical lines together and `uniq` keeps one of each. `sort -u votes.txt` does both jobs in one go.',
+      check: (c) => outputLines(c).join('\n') === FLAVORS.join('\n'),
+    },
+    {
       prompt: 'Why is `red` still in the list twice?\n\n```\n$ cat colors.txt\nred\nblue\nred\n$ uniq colors.txt\nred\nblue\nred\n```',
-      options: ['`uniq` only works on text that comes through a pipe', '`uniq` only removes repeated lines that are next to each other', '`uniq` needs `-c` before it removes anything'],
-      answer: 1,
+      options: ['`uniq` only works on text that comes through a pipe', '`uniq` needs `-c` before it removes anything', '`uniq` only removes repeated lines that are next to each other'],
+      answer: 2,
       explain: '`uniq` compares each line only with the one just before it, which is why it almost always comes after `sort`: `sort colors.txt | uniq` prints `blue` and `red` once each.',
     },
     {
-      kind: 'command',
-      prompt: 'Type a command line that counts how many names `ls /etc` prints, by piping its output into a command that counts lines.',
-      accept: ['ls /etc | wc -l', /^ls( -1)? \/etc\/? ?\| ?wc (-l|--lines)$/],
-      explain: "The pipe hands everything `ls` prints to `wc -l`, which counts the lines it receives. Going into a pipe, `ls` prints one name per line, so that's the number of names.",
+      kind: 'task',
+      prompt: 'Which two flavors in `votes.txt` got the most votes? Show just those two, each with its number of votes, the winner first.',
+      hint: 'Start like before, but count the repeats this time. Then sort the counts as numbers, biggest first, and keep the top two lines.',
+      solution: ['sort votes.txt | uniq -c | sort -rn | head -2'],
+      explain: `\`uniq -c\` counts each flavor, \`sort -rn\` puts the biggest count first and \`head -2\` keeps the top two: ${RANKED[0].flavor} with ${RANKED[0].votes} votes and ${RANKED[1].flavor} with ${RANKED[1].votes}.`,
+      check: (c) => outputLines(c).join('\n') === RANKED.slice(0, 2).map((r) => `${r.votes} ${r.flavor}`).join('\n'),
     },
     {
-      prompt: 'What does this pipeline print?\n\n```\nsort names.txt | uniq -c | sort -rn | head -1\n```',
-      options: ['The name that comes first in alphabetical order', 'How many different names there are', 'The least common name, with its count', 'The most common name, with how many times it appears'],
-      answer: 3,
-      explain: "`uniq -c` puts a count in front of each name, `sort -rn` puts the biggest count first, and `head -1` keeps only that line. For this lesson's list, that's Maya, with a count of 4.",
-    },
-    {
-      prompt: 'In a command line like `A | B`, what does the `|` do?',
-      options: ["It sends everything A prints into B, as B's input", 'It runs B only if A worked', "It saves A's output in a file called B", "It sends B's output into A"],
-      answer: 0,
-      explain: "The pipe connects A's standard output to B's standard input, so the text flows from left to right. Saving output into a file is a job for `>`.",
+      kind: 'task',
+      prompt: 'How many programs in `/usr/bin` have *dir* somewhere in their name, like `mkdir` and `rmdir`? Let the computer count them.',
+      hint: 'Build it step by step: list the programs, keep only the names containing *dir*, then count what is left.',
+      solution: ['ls /usr/bin | grep dir | wc -l'],
+      explain: 'Three tools, one answer: `ls` lists, `grep` keeps the matching names and `wc -l` counts them. (`grep -c dir` would count the matching lines by itself.)',
+      check: (c) => !!c.ev && c.ev.line.includes('/usr/bin') && c.ev.output.trim() === String(visibleNames(c, '/usr/bin').filter((n) => n.includes('dir')).length),
     },
   ],
   recap: `
@@ -145,6 +207,39 @@ const LOG = [
   '2026-10-19 10:21:01 INFO  reconnected to database',
   '2026-10-19 11:00:00 INFO  user chloe logged in',
 ];
+
+/** The quiz's log of an online shop. */
+const SHOP_LOG = [
+  '2026-10-20 09:00:01 INFO  shop opened, 42 products online',
+  '2026-10-20 09:05:13 INFO  customer 1017 logged in',
+  '2026-10-20 09:06:40 WARN  stock low: blue mugs (3 left)',
+  '2026-10-20 09:12:02 ERROR card payment timeout for order 5531',
+  '2026-10-20 09:12:05 INFO  order 5531 paid on second try',
+  '2026-10-20 09:30:44 INFO  customer 1022 logged in',
+  '2026-10-20 09:41:19 WARN  checkout page slow, close to timeout (4.2s)',
+  '2026-10-20 10:02:37 ERROR Timeout while sending receipt email',
+  '2026-10-20 10:02:38 INFO  receipt email queued',
+  '2026-10-20 10:15:00 INFO  daily backup finished',
+  '2026-10-20 10:20:51 WARN  stock low: green socks (1 left)',
+  '2026-10-20 10:33:12 ERROR TIMEOUT talking to the warehouse',
+  '2026-10-20 10:33:30 INFO  warehouse connection restored',
+  '2026-10-20 10:45:09 INFO  customer 1031 logged in',
+  '2026-10-20 10:52:40 WARN  coupon SAVE10 used 50 times today',
+  '2026-10-20 11:00:00 INFO  hourly report sent',
+  '2026-10-20 11:04:27 INFO  customer 1017 logged out',
+];
+
+const SHOP_TIMEOUTS = SHOP_LOG.filter((l) => /timeout/i.test(l));
+const SHOP_INFO = SHOP_LOG.filter((l) => l.includes('INFO'));
+const SHOP_WARNINGS = SHOP_LOG.filter((l) => l.includes('WARN')).length;
+
+const COOKBOOK: Record<string, string> = {
+  'cookbook/soup.txt': 'Tomato soup\n\n4 ripe tomatoes\n1 onion\n2 cloves of garlic\n1 l vegetable stock\n',
+  'cookbook/bread.txt': 'Garlic bread\n\n1 baguette\n50 g soft butter\n3 cloves of garlic, crushed\nparsley\n',
+  'cookbook/cake.txt': 'Chocolate cake\n\n200 g dark chocolate\n200 g butter\n4 eggs\n150 g sugar\n',
+  'cookbook/sauces/pesto.txt': 'Pesto\n\n2 handfuls of basil\n1 clove of garlic\n50 g pine nuts\n50 g parmesan\nolive oil\n',
+  'cookbook/sauces/caramel.txt': 'Caramel sauce\n\n200 g sugar\n100 ml cream\n30 g butter\na pinch of salt\n',
+};
 
 export const grepLesson: Lesson = {
   id: 'grep',
@@ -237,24 +332,26 @@ The most useful options:
       check: any(ran('grep', { flags: 'r' }), ran('grep', { flags: 'R' })),
     },
   ],
+  quizSetup: (env) => {
+    env.file('shop.log', SHOP_LOG.join('\n') + '\n');
+    for (const [path, text] of Object.entries(COOKBOOK)) env.file(path, text, { daysAgo: 6 });
+  },
   quiz: [
     {
-      kind: 'command',
-      prompt: 'Type a command that prints every line of `app.log` containing *error*, whether it is written `error`, `Error` or `ERROR`.',
-      accept: [
-        'grep -i error app.log',
-        /^grep (-i|--ignore-case|-i -e|-ie) (["']?)[eE][rR][rR][oO][rR]\2( ?< ?| )(\.\/)?app\.log$/,
-        /^grep (["']?)[eE][rR][rR][oO][rR]\1 (-i|--ignore-case) (\.\/)?app\.log$/,
-        /^grep (["']?)[eE][rR][rR][oO][rR]\1 (\.\/)?app\.log (-i|--ignore-case)$/,
-        /^cat (\.\/)?app\.log ?\| ?grep (-i|--ignore-case) (["']?)[eE][rR][rR][oO][rR]\3$/,
-      ],
-      explain: '`-i` makes grep ignore upper and lower case, so one search finds all three spellings. Without it, `grep error app.log` would find only the lowercase one.',
+      kind: 'task',
+      prompt: 'Show every line of `shop.log` that mentions a timeout, however it was written: *timeout*, *Timeout* or *TIMEOUT*.',
+      hint: 'grep has an option that makes it ignore the difference between capital and small letters.',
+      solution: ['grep -i timeout shop.log'],
+      explain: 'With `-i`, grep ignores upper and lower case, so one search finds all three spellings. Without it, `grep timeout shop.log` finds only the lowercase ones.',
+      check: (c) => showsOnly(c, SHOP_TIMEOUTS, SHOP_LOG.filter((l) => !SHOP_TIMEOUTS.includes(l))),
     },
     {
-      prompt: 'What does `grep -v INFO server.log` show?',
-      options: ['Only the lines that contain INFO', 'Every line that does **not** contain INFO', 'How many lines contain INFO', "grep's version number"],
-      answer: 1,
-      explain: '`-v` inverts the search: it hides the matching lines and shows all the others, which is handy for filtering out noise. Counting is `-c`, and the version is the capital `-V`.',
+      kind: 'task',
+      prompt: 'How many lines in `shop.log` are warnings (marked WARN)? Get the answer as a number.',
+      hint: 'grep has an option that prints how many lines match, instead of the lines themselves.',
+      solution: ['grep -c WARN shop.log'],
+      explain: `\`grep -c\` counts the matching lines: ${SHOP_WARNINGS}. Piping the matches into \`wc -l\` gives the same answer.`,
+      check: (c) => !!c.ev && ran('grep')(c) && /warn/i.test(c.ev.line) && c.ev.output.trim() === String(SHOP_WARNINGS),
     },
     {
       prompt: 'Why did this go wrong?\n\n```\n$ grep -E WARN|ERROR server.log\nERROR: command not found\n```',
@@ -263,10 +360,20 @@ The most useful options:
       explain: 'The shell handles `|` before grep ever sees it, so it split the line into `grep -E WARN` and a command called `ERROR`. Quote the pattern, as in `grep -E "WARN|ERROR" server.log`, and the `|` reaches grep, where it means *or*. (The broken version leaves grep waiting for keyboard input: press <kbd>Ctrl</kbd>+<kbd>C</kbd>.)',
     },
     {
-      prompt: 'Why did this fail?\n\n```\n$ grep TODO notes\ngrep: notes: Is a directory\n```',
-      options: ['There are no TODOs anywhere in `notes`', 'TODO has to be written in quotes', 'grep can only search one file at a time', 'grep searches files, not folders, unless you add `-r`'],
-      answer: 3,
-      explain: '`notes` is a folder, and grep reads the text of files. `grep -r TODO notes` walks through every file below the folder, subfolders included, and shows which file each match came from.',
+      kind: 'task',
+      prompt: 'Most of `shop.log` is routine INFO messages. Show every line **except** those.',
+      hint: 'grep can turn a search around and show the lines that do *not* match.',
+      solution: ['grep -v INFO shop.log'],
+      explain: '`-v` inverts the search: it hides every line containing INFO and shows all the others, a quick way to cut the noise out of a log.',
+      check: (c) => showsOnly(c, SHOP_LOG.filter((l) => !SHOP_INFO.includes(l)), SHOP_INFO),
+    },
+    {
+      kind: 'task',
+      prompt: 'Which recipes in the `cookbook` folder, subfolders included, mention *garlic*? Search them all with one command.',
+      hint: 'grep can walk through a folder and everything below it, with the right option.',
+      solution: ['grep -r garlic cookbook'],
+      explain: '`-r` makes grep search every file below the folder, and each match starts with the name of the file it came from: the soup, the garlic bread and the pesto in `sauces`.',
+      check: (c) => ran('grep')(c) && showsOnly(c, ['soup.txt', 'bread.txt', 'pesto.txt'], ['cake.txt', 'caramel.txt']),
     },
   ],
   recap: `
@@ -287,6 +394,36 @@ The most useful options:
 On **macOS**, \`grep\` is the BSD version: the options in this lesson behave the same. On **Windows PowerShell** the rough equivalent is \`Select-String\`.
 `,
 };
+
+/** Every file below ~/archive in the find quiz (lesson files plus the quiz's extras). */
+const ARCHIVE_FILES = [
+  '2024/holiday/beach.jpg',
+  '2024/holiday/sunset.JPG',
+  '2024/holiday/clip.mp4',
+  '2024/report.txt',
+  '2024/taxes.pdf',
+  '2025/party.jpg',
+  '2025/budget.csv',
+  '2025/budget.csv.bak',
+  '2025/video-raw.mov',
+  '2025/tickets.PDF',
+  'drafts/letter.txt',
+  'drafts/letter.txt.bak',
+  'drafts/~letter.tmp',
+  'drafts/cache.tmp',
+  'drafts/old/manual.pdf',
+  'notes.txt',
+  'notes.txt.bak',
+];
+
+const ARCHIVE_DIRS = ['2024', '2024/holiday', '2025', 'drafts', 'drafts/old'];
+const ARCHIVE_PDFS = ARCHIVE_FILES.filter((f) => /\.pdf$/i.test(f));
+const ARCHIVE_BAKS = ARCHIVE_FILES.filter((f) => f.endsWith('.bak'));
+
+/** The last command's output lines as paths relative to ~/archive ("" for the folder itself). */
+function archivePaths(c: CheckContext): string[] {
+  return outputLines(c).map((l) => l.replace(/^(\/home\/learner\/archive|~\/archive|\.)(\/|$)/, '').replace(/\/$/, ''));
+}
 
 export const findLesson: Lesson = {
   id: 'find',
@@ -383,35 +520,56 @@ find  .       -name "*.jpg"      -print   (the default)
       check: all(missing('~/archive/drafts/cache.tmp'), missing('~/archive/drafts/~letter.tmp')),
     },
   ],
+  quizSetup: (env) => {
+    blob(env, 'archive/2024/taxes.pdf', 'PDF document, version 1.7, 4 page(s)', 61_337, 200);
+    blob(env, 'archive/2025/tickets.PDF', 'PDF document, version 1.4, 1 page(s)', 18_204, 40);
+    blob(env, 'archive/drafts/old/manual.pdf', 'PDF document, version 1.6, 32 page(s)', 2_406, 90);
+    blob(env, 'archive/2024/holiday/clip.mp4', 'ISO Media, MP4 v2 [ISO 14496-14]', 1_350_000, 380);
+    env.file('archive/2025/budget.csv.bak', 'item,cost\n', { daysAgo: 21 });
+    env.file('archive/drafts/letter.txt.bak', 'Dear Sam,\n', { daysAgo: 3 });
+    env.file('archive/notes.txt.bak', 'remember the milk\n', { daysAgo: 6 });
+  },
   quiz: [
     {
-      prompt: 'There are three photos below this folder, but only two were found:\n\n```\n$ find . -name "*.jpg"\n./2024/holiday/beach.jpg\n./2025/party.jpg\n```\n\nWhy is `2024/holiday/sunset.JPG` missing?',
-      options: ['`find` only looks one folder deep unless you ask for more', '`-name` is case-sensitive, so `*.jpg` does not match `.JPG`', 'The quotes around `*.jpg` stopped the `*` from working'],
-      answer: 1,
-      explain: '`-name` matches upper and lower case exactly. `find . -iname "*.jpg"` ignores case and finds all three. The quotes are right: they stop the shell from expanding `*.jpg` before find runs.',
+      kind: 'task',
+      prompt: 'Find every PDF below this folder, whether its name ends in `.pdf` or in `.PDF`.',
+      hint: '`-name` cares about capital letters. It has a sister test that does not.',
+      solution: ['find . -iname "*.pdf"'],
+      explain: '`-iname` matches the pattern in any case, so it finds `.pdf` and `.PDF` alike. Keep the quotes, so that the shell leaves the `*` for find.',
+      check: (c) => ran('find')(c) && showsOnly(c, ARCHIVE_PDFS, ['.jpg', '.JPG', '.mp4', '.txt', '.csv', '.mov', '.tmp', '.bak']),
     },
     {
-      kind: 'command',
-      prompt: 'Type a command that finds every file whose name ends in `.txt`, in the current folder and in all the folders below it.',
-      accept: [
-        'find . -name "*.txt"',
-        "find . -name '*.txt'",
-        /^find( \.\/?)?( -type f)? -name (["'])\*\.txt\3( -type f)?( -print)?$/,
-        /^find( \.\/?)?( -type f)? -name \\\*\.txt( -type f)?( -print)?$/,
-      ],
-      explain: '`find .` searches here and everything below, and `-name` keeps the names that match the pattern (`-iname` would also match `.TXT`). Keep the quotes: without them, the shell expands `*.txt` itself first, using the names in the current folder.',
+      kind: 'task',
+      prompt: 'Something below this folder takes up a lot of space. Find the files that are bigger than 1 megabyte.',
+      hint: 'find has a test for sizes. A `+` in front of the size means *more than*, and `M` stands for megabytes.',
+      solution: ['find . -size +1M'],
+      explain: '`-size +1M` keeps the files bigger than 1 megabyte (`k` is for kilobytes, `G` for gigabytes). A forgotten video is a classic way to fill up a disk.',
+      check: (c) => ran('find')(c) && showsOnly(c, ['2024/holiday/clip.mp4'], ARCHIVE_FILES.filter((f) => !f.endsWith('clip.mp4'))),
     },
     {
       prompt: 'Which command finds files that were modified in the last 7 days?',
-      options: ['`find . -mtime +7`', '`find . -mtime 7`', '`find . -mtime -7`', '`find . -size -7`'],
-      answer: 2,
+      options: ['`find . -mtime +7`', '`find . -mtime 7`', '`find . -size -7`', '`find . -mtime -7`'],
+      answer: 3,
       explain: 'For `-mtime`, a minus means *less than* that many days ago, so `-7` finds recent changes, while `+7` finds files older than that. `-size` uses the same `+` and `-` idea for sizes.',
     },
     {
-      prompt: 'You want to delete every `.tmp` file below this folder with `find . -name "*.tmp" -delete`. What is the safe way to do it?',
-      options: ['Run `find . -name "*.tmp"` first and check the list, then add `-delete`', 'Just run it: `-delete` asks before removing each file', 'Just run it: deleted files go to the trash, so you can get them back'],
-      answer: 0,
-      explain: "`-delete` removes every match at once, without asking, and there's no trash to get them back from. Running the same search without `-delete` first shows exactly what would go.",
+      kind: 'task',
+      prompt: 'List only the folders inside this one, at any depth, without the files.',
+      hint: 'find can test what *type* of thing each item is.',
+      solution: ['find . -type d'],
+      explain: '`-type d` keeps only directories (`-type f` would keep only regular files). The `.` at the top is the folder you started from.',
+      check: (c) => {
+        const found = archivePaths(c).filter((p) => p !== '');
+        return ran('find')(c) && found.length === ARCHIVE_DIRS.length && ARCHIVE_DIRS.every((d) => found.includes(d));
+      },
+    },
+    {
+      kind: 'task',
+      prompt: 'Time to clean up: delete every `.bak` backup file below this folder, wherever it is, and leave everything else alone.',
+      hint: 'Search by name first to see what would go, then add the action that deletes every match.',
+      solution: ['find . -name "*.bak"', 'find . -name "*.bak" -delete'],
+      explain: '`-delete` removes every match without asking, and there is no trash to get them back from. That is why it pays to run the same search without `-delete` first.',
+      check: all(...ARCHIVE_BAKS.map((f) => missing(`archive/${f}`)), ...ARCHIVE_FILES.filter((f) => !ARCHIVE_BAKS.includes(f)).map((f) => exists(`archive/${f}`))),
     },
   ],
   recap: `
@@ -447,6 +605,27 @@ const SALES = [
   '2026-09-07,South,Pen,35,0.80',
   '2026-09-07,West,Stapler,2,7.25',
 ];
+
+/** The quiz's spreadsheet: one pet per line. */
+const PETS = [
+  'name,species,age,city',
+  'Biscuit,dog,3,Denver',
+  'Luna,cat,12,Austin',
+  'Pickles,rabbit,2,Denver',
+  'Max,dog,9,Boston',
+  'Mochi,cat,1,Austin',
+  'Shadow,cat,15,Boston',
+  'Pepper,parrot,23,Denver',
+  'Rocky,dog,5,Austin',
+  'Nugget,hamster,1,Boston',
+  'Willow,cat,7,Denver',
+];
+
+const PET_ROWS = PETS.slice(1).map((l) => l.split(','));
+const OLDEST_PET = PETS.slice(1).sort((a, b) => Number(a.split(',')[2]) - Number(b.split(',')[2])).pop()!;
+
+/** "COUNT species" for every species, as `uniq -c` prints them (squeezed). */
+const SPECIES_COUNTS = [...new Set(PET_ROWS.map((r) => r[1]))].map((s) => `${PET_ROWS.filter((r) => r[1] === s).length} ${s}`);
 
 export const dataWrangling: Lesson = {
   id: 'data-wrangling',
@@ -528,35 +707,55 @@ You'll work with \`sales.csv\`, a small sales spreadsheet.
       check: ran('sed'),
     },
   ],
+  quizSetup: (env) => {
+    env.file('pets.csv', PETS.join('\n') + '\n');
+  },
   quiz: [
     {
-      kind: 'command',
-      prompt: 'Type a command that prints only the 3rd column (the product) of the comma-separated file `sales.csv`.',
-      accept: [
-        'cut -d, -f3 sales.csv',
-        /^cut ((-d ?|--delimiter[= ])(,|','|",") (-f ?|--fields[= ])3|(-f ?|--fields[= ])3 (-d ?|--delimiter[= ])(,|','|",")) (\.\/)?sales\.csv$/,
-        /^cat (\.\/)?sales\.csv ?\| ?cut ((-d ?|--delimiter[= ])(,|','|",") (-f ?|--fields[= ])3|(-f ?|--fields[= ])3 (-d ?|--delimiter[= ])(,|','|","))$/,
-        /^awk -F ?(,|','|",") '\{ ?print \$3 ?\}' (\.\/)?sales\.csv$/,
-      ],
-      explain: '`-d,` tells cut that commas separate the columns, and `-f3` picks the third field. Without `-d,`, cut would look for tabs between the columns instead.',
+      kind: 'task',
+      prompt: '`pets.csv` is a small spreadsheet of pets. Show just the city of each pet, one per line.',
+      hint: 'The first line names the columns, so you can see which one holds the city. Then cut out that field; commas separate the columns.',
+      solution: ['cut -d, -f4 pets.csv'],
+      explain: '`-d,` tells cut that commas separate the columns, and `-f4` picks the 4th one. cut treats the header line like any other, so `cut -d, -f4 pets.csv` prints the word `city` first.',
+      check: (c) => {
+        const lines = outputLines(c);
+        const i = lines.indexOf('city');
+        if (i >= 0) lines.splice(i, 1);
+        return lines.sort().join('\n') === PET_ROWS.map((r) => r[3]).sort().join('\n');
+      },
     },
     {
-      prompt: 'Counting orders per region gives an extra line:\n\n```\n$ cut -d, -f2 sales.csv | sort | uniq -c\n      3 East\n      4 North\n      1 region\n      4 South\n      3 West\n```\n\nWhere does `1 region` come from?',
-      options: ['One of the orders has *region* as its region', '`uniq -c` always adds a line naming the column', "It's the header row, which `tail -n +2 sales.csv` would skip"],
-      answer: 2,
-      explain: 'Line 1 of the file names the columns, so its 2nd field is the word *region*. `tail -n +2` starts at line 2 and drops the header: `tail -n +2 sales.csv | cut -d, -f2 | sort | uniq -c`.',
+      kind: 'task',
+      prompt: 'How many pets of each species are there in `pets.csv`? Count them, without counting the header line as a species.',
+      hint: 'Skip the first line, cut out the species column, then group the same species together and count them.',
+      solution: ['tail -n +2 pets.csv | cut -d, -f2 | sort | uniq -c'],
+      explain: '`tail -n +2` starts at line 2, which drops the header. Then `cut` picks the species, `sort` puts the same ones together, and `uniq -c` counts them.',
+      check: (c) => {
+        const lines = outputLines(c);
+        return lines.length === SPECIES_COUNTS.length && SPECIES_COUNTS.every((l) => lines.includes(l));
+      },
+    },
+    {
+      kind: 'task',
+      prompt: "Which pet in `pets.csv` is the oldest? Let `sort` work it out, and show only that pet's line.",
+      hint: 'Sort by the 3rd column (tell sort the columns are separated by commas), as numbers, and keep the last line.',
+      solution: ['sort -t, -k3 -n pets.csv | tail -1'],
+      explain: '`-t,` splits each line at the commas, `-k3` sorts by the 3rd column and `-n` compares the ages as numbers. Without `-n`, sort compares text character by character, so `9` would come after `23`.',
+      check: (c) => outputLines(c).join('\n') === OLDEST_PET,
+    },
+    {
+      kind: 'task',
+      prompt: 'Show the contents of `pets.csv` with every comma replaced by a semicolon (`;`), without changing the file itself.',
+      hint: "Use sed's find and replace, and make sure it replaces *every* comma on a line, not just the first. Put the whole sed instruction in quotes.",
+      solution: ["sed 's/,/;/g' pets.csv"],
+      explain: "`s/,/;/g` replaces every comma on each line: the `g` stands for *global*. The quotes matter here, because the shell would otherwise take `;` as the end of the command. (`tr , ';' < pets.csv` gives the same result.)",
+      check: (c) => !!c.ev && c.ev.output.includes(PETS.join('\n').replace(/,/g, ';')),
     },
     {
       prompt: "What does this print?\n\n```\necho \"red,green,blue\" | sed 's/,/ and /'\n```",
-      options: ['`red and green,blue`', '`red and green and blue`', '`red,green,blue`'],
-      answer: 0,
-      explain: "Without a `g` at the end, `s/old/new/` replaces only the **first** match on each line. `sed 's/,/ and /g'` would replace every comma.",
-    },
-    {
-      prompt: 'Plain `sort` puts these numbers in a strange order:\n\n```\n$ sort sizes.txt\n100\n25\n30\n9\n```\n\nWhich command sorts them by value, from smallest to largest?',
-      options: ['`sort -r sizes.txt`', '`sort -n sizes.txt`', '`sort -rn sizes.txt`'],
+      options: ['`red and green and blue`', '`red and green,blue`', '`red,green,blue`'],
       answer: 1,
-      explain: 'Plain `sort` compares text character by character, and `1` comes before `2`, `3` and `9`. `-n` compares numbers by their value; adding `-r` would reverse the order, biggest first.',
+      explain: "Without a `g` at the end, `s/old/new/` replaces only the **first** match on each line. `sed 's/,/ and /g'` would replace every comma.",
     },
   ],
   recap: `

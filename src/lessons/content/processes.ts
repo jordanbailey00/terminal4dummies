@@ -1,11 +1,57 @@
 // Module: Processes and jobs.
 
-import { all, any, interrupted, lineMatches, ran, stoppedJob } from '../checks';
+import { all, any, everRan, interrupted, lineMatches, ran, stoppedJob } from '../checks';
 import type { CheckContext, Lesson } from '../types';
+
+type Check = (c: CheckContext) => boolean;
 
 function jobCount(n: number) {
   return (c: CheckContext) => c.sh.jobs.all().filter((j) => j.state !== 'done').length === n;
 }
+
+/** The `sleep` processes that are still alive (running or paused). */
+function liveSleeps(c: CheckContext) {
+  return c.sys.processes.list().filter((p) => p.argv[0]?.split('/').pop() === 'sleep');
+}
+
+function sleepPids(c: CheckContext): number[] {
+  return liveSleeps(c).map((p) => p.pid);
+}
+
+/** A `sleep` job is running in the background. */
+const sleepJobRunning: Check = (c) => c.sh.jobs.all().some((j) => j.state === 'running' && /\bsleep\b/.test(j.command));
+
+/**
+ * Since the question came up, `fg` brought a job back and it ended there.
+ * (`fg` fails with status 1 when there is no such job, and returns 148 when
+ * the job was paused again with Ctrl+Z.)
+ */
+const fgEnded: Check = (c) => c.commands.some((ev) => ev.execs.some((e) => e.argv[0] === 'fg' && e.status !== 1 && e.status !== 148));
+
+/**
+ * A `sleep` that was paused with Ctrl+Z since the question came up is running
+ * again in the background. (When the job was paused after `fg` brought it
+ * back, any running `sleep` job counts.)
+ */
+const pausedSleepResumed: Check = (c) => {
+  const paused = new Set(c.commands.filter((ev) => ev.stopped).map((ev) => ev.line.trim()));
+  const afterFg = c.commands.some((ev) => ev.execs.some((e) => e.argv[0] === 'fg' && e.status === 148));
+  return c.sh.jobs.all().some((j) => j.state === 'running' && /\bsleep\b/.test(j.command) && (afterFg || paused.has(j.command.trim())));
+};
+
+/** A `sleep` was ended by a signal since the question came up. */
+const sleepKilled: Check = (c) =>
+  c.commands.some((ev) => ev.execs.some((e) => e.argv[0]?.split('/').pop() === 'sleep' && e.status > 128 && e.status !== 148));
+
+/** The last command ran ps with options that select every process: BSD style (aux, ax...) or -e / -A. */
+const listedAllProcesses: Check = (c) =>
+  !!c.ev &&
+  c.ev.execs.some(
+    (e) =>
+      e.argv[0]?.split('/').pop() === 'ps' &&
+      e.status === 0 &&
+      e.argv.slice(1).some((a) => (/^[a-zA-Z]+$/.test(a) && a.includes('a') && a.includes('x')) || /^-[a-zA-Z]*[eA]/.test(a)),
+  );
 
 export const processes: Lesson = {
   id: 'processes',
@@ -88,21 +134,42 @@ To stop a process you send it a **signal**:
   ],
   quiz: [
     {
-      prompt: 'You start `sleep 500 &`, and the shell prints `[1] 4721`. What do the two numbers mean?',
-      options: [
-        '`1` is the process ID (PID), and `4721` is the job number',
-        '`1` is the exit status, and `4721` is the process ID (PID)',
-        '`1` is how many programs are running, and `4721` is the process ID (PID)',
-        '`1` is the job number, and `4721` is the process ID (PID)',
-      ],
-      answer: 3,
-      explain: 'The number in brackets is the job number this shell gave it, and the other is the PID the system gave the process. So `kill %1` and `kill 4721` would stop the same `sleep`.',
+      kind: 'task',
+      prompt: 'List **every** process running on this computer, not just the ones started from this terminal.',
+      hint: 'On its own, `ps` only shows the processes of this terminal. It needs an option that selects them all.',
+      solution: ['ps aux'],
+      explain:
+        '`ps aux` (written without a dash) lists every process, with columns for its owner (`USER`) and its CPU and memory use (`%CPU`, `%MEM`). `ps -e` and `ps -ef` are other common ways to select every process.',
+      check: listedAllProcesses,
     },
     {
-      kind: 'command',
-      prompt: 'Type the command that lists **every** process on the computer, with its owner and its CPU and memory use.',
-      accept: ['ps aux', /^ps (aux|axu|uax|uxa|xau|xua)$/],
-      explain: 'On its own, `ps` only shows the processes in this terminal. `ps aux` (written without a dash) shows every process, with columns for its owner (`USER`) and its CPU and memory use (`%CPU`, `%MEM`).',
+      kind: 'task',
+      prompt: 'Start a `sleep` that lasts 900 seconds **in the background**, so that the prompt comes straight back while it keeps running.',
+      hint: 'A single character at the end of the line sends a command to the background.',
+      solution: ['sleep 900 &'],
+      explain: 'The shell printed the job number in brackets and the PID of the new process. `sleep` is now quietly waiting while you keep working.',
+      check: sleepJobRunning,
+    },
+    {
+      kind: 'task',
+      prompt: 'Find out the process ID (PID) of the `sleep` that is running.',
+      hint: 'There is a command that searches the running processes by name. `ps` would show it too.',
+      solution: ['pgrep sleep'],
+      explain: '`pgrep` searched the running processes by name and printed the PID of each match (add `-l` to see the names too). `ps` and `jobs -l` show it as well.',
+      check: any(
+        (c) => !!c.ev && sleepPids(c).some((pid) => new RegExp(`(^|\\D)${pid}(\\D|$)`).test(c.ev?.output ?? '')),
+        // ps read in a pager, or the live view of top: they draw on a screen of their own, so their output isn't captured
+        all((c) => sleepPids(c).length > 0, any(all(ran('ps', { status: 0 }), any(ran('less'), ran('more'))), ran('top'), ran('htop'))),
+      ),
+    },
+    {
+      kind: 'task',
+      prompt: 'Now stop that `sleep` process.',
+      hint: 'The command that sends signals to processes has a rather dramatic name. Give it the PID, or the job number with a `%` in front.',
+      solution: ['kill %1'],
+      explain:
+        '`kill` sent the polite SIGTERM signal and `sleep` ended. Using the PID (`kill` followed by the number that pgrep printed) or the name (`pkill sleep`) would have done the same.',
+      check: all(any((c) => sleepPids(c).length === 0, sleepKilled), any(everRan('kill', { status: 0 }), everRan('pkill', { status: 0 }), fgEnded)),
     },
     {
       prompt: 'Which statement about `kill -9 4721` is true?',
@@ -114,12 +181,6 @@ To stop a process you send it a **signal**:
       ],
       answer: 1,
       explain: '`-9` sends SIGKILL, which the system carries out itself, so the program gets no say and no chance to clean up. That is why it is the last resort; a plain `kill 4721` sends the polite SIGTERM.',
-    },
-    {
-      prompt: 'Which command prints the PIDs of the running processes called `sleep`?',
-      options: ['`which sleep`', '`ps sleep`', '`pgrep -l sleep`'],
-      answer: 2,
-      explain: '`pgrep` searches the running processes by name and prints their PIDs (`-l` adds the names). `which sleep` only shows where the program file is stored, and `ps` does not accept a program name on its own.',
     },
   ],
   recap: `
@@ -213,28 +274,42 @@ Your shell can juggle several **jobs** at once. A job is a command you started f
   ],
   quiz: [
     {
-      prompt: 'What is the difference between <kbd>Ctrl</kbd>+<kbd>C</kbd> and <kbd>Ctrl</kbd>+<kbd>Z</kbd>?',
-      options: [
-        '<kbd>Ctrl</kbd>+<kbd>C</kbd> copies the selected text, and <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes the last command',
-        '<kbd>Ctrl</kbd>+<kbd>C</kbd> stops the foreground program for good, while <kbd>Ctrl</kbd>+<kbd>Z</kbd> only pauses it',
-        'There is no difference: both stop the program for good',
-        '<kbd>Ctrl</kbd>+<kbd>C</kbd> pauses the program, while <kbd>Ctrl</kbd>+<kbd>Z</kbd> stops it for good',
-      ],
-      answer: 1,
-      explain: '<kbd>Ctrl</kbd>+<kbd>C</kbd> ends the foreground program for good. After <kbd>Ctrl</kbd>+<kbd>Z</kbd> it is only *stopped*: it still exists, waiting for you to resume it with `fg` or `bg`.',
+      kind: 'task',
+      prompt: 'Start a `sleep` that lasts 200 seconds, then end it for good from the keyboard, without waiting for it to finish.',
+      hint: 'One key combination ends the foreground program for good; another only pauses it.',
+      solution: ['sleep 200', { keys: '\x03', label: 'Press Ctrl+C', delay: 500 }],
+      explain: '<kbd>Ctrl</kbd>+<kbd>C</kbd> sent the interrupt signal (SIGINT) to the program in the foreground, which ended it and gave you your prompt back.',
+      check: all(ran('sleep'), interrupted()),
     },
     {
-      kind: 'command',
+      kind: 'task',
       prompt:
-        'You were running `sleep 400` and pressed <kbd>Ctrl</kbd>+<kbd>Z</kbd> by accident. The shell printed:\n\n```\n[1]+  Stopped                 sleep 400\n```\n\nType the command that brings it back to the foreground.',
-      accept: ['fg', 'fg %1', 'fg 1', 'fg %+', 'fg %%', 'fg %', 'fg %sleep', '%1', '%+', '%%', '%', '%sleep'],
-      explain: '`fg` (short for *foreground*) resumes the stopped job and gives it the keyboard again. When you have several jobs, add the job number, as in `fg %2`.',
+        'Start a `sleep` that lasts 300 seconds, in the foreground as usual. Then pause it, and let it carry on running in the background, so that you get your prompt back while it runs.',
+      hint: 'First press the keys that pause the foreground program, then use the command that resumes a paused job in the background.',
+      solution: ['sleep 300', { keys: '\x1a', label: 'Press Ctrl+Z', delay: 500 }, 'bg'],
+      explain:
+        '<kbd>Ctrl</kbd>+<kbd>Z</kbd> paused the job (`Stopped`), and `bg` let it continue in the background: `jobs` now lists it as `Running`. `fg` would have resumed it too, but in the foreground, where it keeps the keyboard until it finishes.',
+      check: pausedSleepResumed,
     },
     {
-      prompt: 'You paused a long job with <kbd>Ctrl</kbd>+<kbd>Z</kbd>. Now you want it to continue running while you keep typing other commands. What do you type?',
-      options: ['`fg`', '`jobs`', '`&`', '`bg`'],
-      answer: 3,
-      explain: '`bg` resumes a stopped job in the **background**, so the prompt stays free for you. `fg` would resume it too, but in the foreground, where it keeps the keyboard until it finishes.',
+      kind: 'task',
+      prompt: 'Start a second job in the background: a `sleep` of 700 seconds. Then end the first job (the 300-second `sleep`), and leave the new one running.',
+      hint: '`jobs` lists your jobs with their numbers. You can refer to a job by its number with a `%` in front.',
+      solution: ['sleep 700 &', 'kill %1'],
+      explain: '`%1` means *job number 1*, the 300-second `sleep`, while the new one was job 2. You could also have used the PID of the first one, which `jobs -l` shows.',
+      check: all(
+        (c) => liveSleeps(c).some((p) => /^700s?$/.test(p.argv[1] ?? '') && p.state !== 'T'),
+        (c) => !liveSleeps(c).some((p) => /^300s?$/.test(p.argv[1] ?? '')),
+        any(everRan('kill', { status: 0 }), everRan('pkill', { status: 0 }), fgEnded),
+      ),
+    },
+    {
+      kind: 'task',
+      prompt: 'Bring the `sleep` that is still running back to the foreground, then end it for good.',
+      hint: 'The command you need is short for *foreground*. Once the job has the keyboard again, the usual keys can reach it.',
+      solution: ['fg', { keys: '\x03', label: 'Press Ctrl+C', delay: 600 }],
+      explain: '`fg` printed the command it resumed and gave it the keyboard again, so <kbd>Ctrl</kbd>+<kbd>C</kbd> could reach it. When you have several jobs, add the job number, as in `fg %2`.',
+      check: all(fgEnded, (c) => !liveSleeps(c).some((p) => p.state !== 'T')),
     },
     {
       prompt: '`jobs` shows:\n\n```\n[1]-  Running                 sleep 600 &\n[2]+  Running                 sleep 700 &\n```\n\nWhich command ends `sleep 700`?',

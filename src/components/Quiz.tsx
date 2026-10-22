@@ -1,131 +1,228 @@
-// The quiz at the end of a lesson: answers are checked right away, with an
-// explanation, and saved with the lesson's progress.
+// The quiz at the end of a lesson. Questions come one at a time: tasks are
+// answered by doing them in the terminal, multiple choice by picking an option.
 
-import { useState, type ReactNode } from 'react';
-import { isCorrect, type QuizAnswer } from '../lessons/quiz';
-import type { CommandQuestion, ChoiceQuestion, QuizQuestion } from '../lessons/types';
-import { resetQuiz, setQuizAnswer, useProgress } from '../state/progress';
+import { useState } from 'react';
+import type { Tip } from '../lessons/coach';
+import type { QuizEntry, QuizRunner } from '../lessons/quiz';
+import type { ChoiceQuestion, QuizQuestion, SolutionAction, TaskQuestion } from '../lessons/types';
 import { Markdown } from './Markdown';
 
 const LETTERS = 'abcd';
 
-export function Quiz({ lessonId, questions }: { lessonId: string; questions: QuizQuestion[] }) {
-  const progress = useProgress();
-  const saved = progress.lessons[lessonId]?.quiz;
-  // answers saved for a different set of questions (the quiz changed since) are dropped
-  const answers: (QuizAnswer | null)[] = saved && saved.length === questions.length ? saved : questions.map(() => null);
-  const answered = answers.filter((a) => a !== null).length;
-  const correct = questions.filter((q, i) => isCorrect(q, answers[i])).length;
+export interface QuizPanelProps {
+  questions: QuizQuestion[];
+  /** Saved results (null: the quiz was never started). */
+  entries: (QuizEntry | null)[] | null;
+  /** Present while the terminal is running the quiz. */
+  runner: QuizRunner | null;
+  /** The coach's explanation of the last failed command. */
+  tip: Tip | null;
+  onStart: () => void;
+  onResume: () => void;
+  onLeave: () => void;
+  onShowTerminal: () => void;
+}
+
+export function QuizPanel({ questions, entries, runner, tip, onStart, onResume, onLeave, onShowTerminal }: QuizPanelProps) {
+  const list = runner ? runner.entries : entries;
+  const started = list !== null;
+  const answered = list ? list.filter((e) => e !== null).length : 0;
+  const finished = started && answered === questions.length;
+  const current = runner && !finished ? runner.currentIndex : -1;
+  const tasks = questions.filter((q) => q.kind === 'task').length;
+  const score = list ? list.filter((e) => e?.status === 'right').length : 0;
+
   return (
     <section className="quiz" aria-labelledby="quiz-heading">
       <h2 id="quiz-heading" className="steps-heading">
         Quiz
       </h2>
-      <ol className="quiz-list">
-        {questions.map((q, i) => (
-          <li key={`${lessonId}-${i}`} className="quiz-q">
-            <div className="quiz-prompt">
-              <span className="quiz-num">{i + 1}.</span>
-              <Markdown source={q.prompt} />
-            </div>
-            {q.kind === 'command' ? (
-              // a fresh input after "retry"
-              <CommandAnswer key={answers[i] === null ? 'open' : 'done'} q={q} answer={answers[i]} onAnswer={(a) => setQuizAnswer(lessonId, i, questions.length, a)} />
-            ) : (
-              <ChoiceAnswer q={q} answer={answers[i]} onAnswer={(a) => setQuizAnswer(lessonId, i, questions.length, a)} />
-            )}
-          </li>
-        ))}
-      </ol>
-      <div className="quiz-score" role="status">
-        <span>{answered === questions.length ? `score: ${correct}/${questions.length}` : `${answered}/${questions.length} answered`}</span>
-        {answered > 0 && (
-          <button type="button" className="btn" onClick={() => resetQuiz(lessonId)}>
-            retry
+      {!started && (
+        <div className="quiz-intro">
+          <p>
+            {questions.length} questions: {tasks} you answer by doing them in the terminal, the rest by picking an answer. The terminal switches to a fresh copy of this lesson's files.
+          </p>
+          <button type="button" className="btn btn-accent" onClick={onStart}>
+            start quiz
           </button>
-        )}
-      </div>
+        </div>
+      )}
+      {started && !runner && !finished && (
+        <div className="quiz-intro">
+          <p>
+            {answered}/{questions.length} answered.
+          </p>
+          <div className="quiz-buttons">
+            <button type="button" className="btn btn-accent" onClick={onResume}>
+              continue quiz
+            </button>
+            <button type="button" className="btn" onClick={onStart}>
+              start over
+            </button>
+          </div>
+        </div>
+      )}
+      {started && (
+        <ol className="quiz-list">
+          {questions.map((q, i) => {
+            const entry = list?.[i] ?? null;
+            if (entry) return <AnsweredItem key={i} q={q} index={i} entry={entry} />;
+            if (i === current && runner) {
+              return q.kind === 'task' ? (
+                <ActiveTask key={i} q={q} index={i} runner={runner} tip={tip} onShowTerminal={onShowTerminal} />
+              ) : (
+                <ActiveChoice key={i} q={q} index={i} runner={runner} />
+              );
+            }
+            return (
+              <li key={i} className="quiz-q upcoming">
+                <span className="quiz-num">{i + 1}.</span>
+                <span className="faint">{q.kind === 'task' ? 'terminal task' : 'multiple choice'}</span>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {finished && (
+        <div className="quiz-score">
+          <span>
+            score: {score}/{questions.length}
+          </span>
+          <button type="button" className="btn" onClick={onStart}>
+            retry quiz
+          </button>
+          {runner && (
+            <button type="button" className="btn" onClick={onLeave}>
+              back to the lesson's terminal
+            </button>
+          )}
+        </div>
+      )}
     </section>
   );
 }
 
-function Result({ right, children }: { right: boolean; children: ReactNode }) {
+function Prompt({ q, index }: { q: QuizQuestion; index: number }) {
   return (
-    <div className={`quiz-result ${right ? 'right' : 'wrong'}`} role="status">
-      <span className="quiz-verdict">{right ? '✓ correct' : '✗ not quite'}</span>
-      {children}
+    <div className="quiz-prompt">
+      <span className="quiz-num">{index + 1}.</span>
+      <Markdown source={q.prompt} />
     </div>
   );
 }
 
-function ChoiceAnswer({ q, answer, onAnswer }: { q: ChoiceQuestion; answer: QuizAnswer | null; onAnswer: (a: number) => void }) {
-  const done = typeof answer === 'number';
+function Solution({ actions }: { actions: SolutionAction[] }) {
   return (
-    <>
-      <div className="quiz-options" role="group" aria-label="Answers">
-        {q.options.map((o, oi) => {
-          const state = !done ? '' : oi === q.answer ? ' right' : oi === answer ? ' wrong' : '';
-          return (
-            <button key={oi} type="button" className={`quiz-option${state}`} disabled={done} aria-pressed={done && oi === answer} onClick={() => onAnswer(oi)}>
-              <span className="quiz-letter">{LETTERS[oi]})</span>
-              <Markdown source={o} inline />
-            </button>
-          );
-        })}
-      </div>
-      {done && (
-        <Result right={answer === q.answer}>
-          <Markdown source={q.explain} />
-        </Result>
-      )}
-    </>
+    <ol className="quiz-solution">
+      {actions.map((a, i) => (
+        <li key={i}>{typeof a === 'string' ? <code>{a}</code> : a.label}</li>
+      ))}
+    </ol>
   );
 }
 
-function CommandAnswer({ q, answer, onAnswer }: { q: CommandQuestion; answer: QuizAnswer | null; onAnswer: (a: string) => void }) {
-  const [text, setText] = useState('');
-  const done = typeof answer === 'string';
-  const right = isCorrect(q, answer);
+function AnsweredItem({ q, index, entry }: { q: QuizQuestion; index: number; entry: QuizEntry }) {
+  const verdict = entry.status === 'right' ? '✓ correct' : entry.status === 'wrong' ? '✗ wrong' : '– answer shown';
   return (
-    <>
-      <form
-        className="quiz-command"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (text.trim()) onAnswer(text);
-        }}
-      >
-        <span className="quiz-dollar" aria-hidden="true">
-          $
+    <li className={`quiz-q answered ${entry.status}`}>
+      <Prompt q={q} index={index} />
+      {q.kind !== 'task' && <Options q={q} picked={entry.answer ?? null} />}
+      <div className={`quiz-result ${entry.status}`}>
+        <span className="quiz-verdict">
+          {verdict}
+          {q.kind === 'task' && entry.status === 'right' && entry.line ? (
+            <>
+              {' '}
+              with <code>{entry.line}</code>
+            </>
+          ) : null}
+          {q.kind === 'task' && entry.status === 'right' && (entry.tries ?? 0) > 1 ? ` · ${entry.tries} tries` : ''}
         </span>
-        <input
-          type="text"
-          value={done ? answer : text}
-          onChange={(e) => setText(e.target.value)}
-          disabled={done}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoComplete="off"
-          autoCorrect="off"
-          aria-label="Type the command"
-          placeholder="type the command"
-        />
-        {!done && (
-          <button type="submit" className="btn" disabled={!text.trim()}>
-            check
+        {q.kind === 'task' && entry.status === 'revealed' && <Solution actions={q.solution} />}
+        <Markdown source={q.explain} />
+      </div>
+    </li>
+  );
+}
+
+function Options({ q, picked, onPick }: { q: ChoiceQuestion; picked: number | null; onPick?: (i: number) => void }) {
+  const done = picked !== null;
+  return (
+    <div className="quiz-options" role="group" aria-label="Answers">
+      {q.options.map((o, oi) => {
+        const state = !done ? '' : oi === q.answer ? ' right' : oi === picked ? ' wrong' : '';
+        return (
+          <button key={oi} type="button" className={`quiz-option${state}`} disabled={done} aria-pressed={done && oi === picked} onClick={() => onPick?.(oi)}>
+            <span className="quiz-letter">{LETTERS[oi]})</span>
+            <Markdown source={o} inline />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ActiveChoice({ q, index, runner }: { q: ChoiceQuestion; index: number; runner: QuizRunner }) {
+  return (
+    <li className="quiz-q current" aria-current="step">
+      <Prompt q={q} index={index} />
+      <Options q={q} picked={null} onPick={(i) => runner.answer(i)} />
+    </li>
+  );
+}
+
+function ActiveTask({ q, index, runner, tip, onShowTerminal }: { q: TaskQuestion; index: number; runner: QuizRunner; tip: Tip | null; onShowTerminal: () => void }) {
+  const [hint, setHint] = useState(false);
+  const miss = runner.lastMiss;
+  return (
+    <li className="quiz-q current" aria-current="step">
+      <Prompt q={q} index={index} />
+      <div className="quiz-waiting">
+        <span>→ do it in the terminal</span>
+        <button type="button" className="btn mobile-only" onClick={onShowTerminal}>
+          terminal
+        </button>
+      </div>
+      {miss && (
+        <div className="quiz-result wrong" role="status">
+          <span className="quiz-verdict">
+            ✗ not yet: <code>{miss.line.trim()}</code> didn't do it
+          </span>
+          {tip && (
+            <>
+              <strong className="quiz-tip-title">{tip.title}</strong>
+              <Markdown source={tip.body} />
+            </>
+          )}
+        </div>
+      )}
+      <div className="step-actions">
+        {q.hint && (
+          <button type="button" className="btn" onClick={() => setHint((h) => !h)} aria-expanded={hint}>
+            {hint ? 'hide hint' : 'hint'}
           </button>
         )}
-      </form>
-      {done && (
-        <Result right={right}>
-          {!right && (
-            <p className="quiz-model">
-              answer: <code>{q.accept[0]}</code>
-            </p>
-          )}
-          <Markdown source={q.explain} />
-        </Result>
+        {!runner.revealed ? (
+          <button type="button" className="btn" onClick={() => runner.reveal()}>
+            show answer
+          </button>
+        ) : (
+          <button type="button" className="btn skip" onClick={() => runner.skip()}>
+            skip
+          </button>
+        )}
+      </div>
+      {hint && q.hint && (
+        <div className="step-hint">
+          <Markdown source={q.hint} />
+        </div>
       )}
-    </>
+      {runner.revealed && (
+        <div className="step-hint">
+          <p className="quiz-solution-label">one way to do it (this question won't count):</p>
+          <Solution actions={q.solution} />
+        </div>
+      )}
+    </li>
   );
 }

@@ -1,12 +1,15 @@
 // Module: Automating with scripts.
 
-import { all, any, fileContains, interrupted, isExecutable, isFile, lineMatches, not, ran } from '../checks';
+import { all, any, fileContains, fileText, interrupted, isDir, isExecutable, isFile, lineMatches, missing, not, outputIncludes, ran } from '../checks';
 import type { CheckContext, Lesson, SolutionAction } from '../types';
 
 type Check = (c: CheckContext) => boolean;
 
 /** A first line that starts bash (or sh). */
 const SHEBANG = /^#!\s*(\/usr)?\/bin\/(env\s+)?(bash|sh)\b/;
+
+/** A first line that starts bash. */
+const BASH_SHEBANG = /^#!\s*(\/usr)?\/bin\/(env\s+)?bash\b/;
 
 /** The keys that type `text` into nano, save it under its current name and exit. */
 function typeInNano(text: string, what: string): SolutionAction[] {
@@ -49,6 +52,32 @@ echo "Hello, $1"
 echo "Number of names: $#"
 echo "All the names: $@"
 `;
+
+// Quiz files
+const BYE = `#!/bin/bash
+echo "Goodbye"
+`;
+
+const CHEER = `#!/bin/bash
+# cheer.sh: a little encouragement
+echo "Well done, $USER. Keep it up."
+`;
+
+const WELCOME = `#!/bin/bash
+# welcome.sh: welcome the person named in the first argument
+echo "Welcome, $1"
+`;
+
+const HEY = `#!/bin/bash
+# hey: a greeting from your own tools folder
+echo "Hey there, $USER"
+`;
+
+/** PATH includes ~/tools, and still has the folders it had before. */
+const pathIncludesTools: Check = (c) => {
+  const parts = (c.sh.state.get('PATH') ?? '').split(':').map((p) => p.replace(/(.)\/+$/, '$1'));
+  return parts.some((p) => p === '/home/learner/tools' || p === '~/tools') && parts.includes('/usr/bin') && parts.includes('/bin');
+};
 
 export const firstScript: Lesson = {
   id: 'first-script',
@@ -170,6 +199,11 @@ ${NANO_SAVE} Then make it executable:
       check: (c) => !!c.ev && c.ev.execs.some((e) => (e.argv[0] === 'greet' || e.argv[0] === 'greet.sh') && e.kind === 'external' && e.status === 0),
     },
   ],
+  quizSetup: (env) => {
+    env.file('cheer.sh', CHEER);
+    env.file('welcome.sh', WELCOME, { mode: 0o775 });
+    env.file('tools/hey', HEY, { mode: 0o775 });
+  },
   quiz: [
     {
       prompt: 'What is the first line of a script, `#!/bin/bash`, for?',
@@ -184,29 +218,39 @@ ${NANO_SAVE} Then make it executable:
         'When you run `./hello.sh`, Linux sees the `#!` (the **shebang**) and hands the file to the program named after it, `/bin/bash`. It does not make the file executable, though; that is still the job of `chmod +x`.',
     },
     {
-      kind: 'command',
-      prompt: 'You type `./hello.sh` and get `bash: ./hello.sh: Permission denied`. Type the command that fixes this, so that `./hello.sh` works.',
-      accept: ['chmod +x hello.sh', /^chmod (u|a|ug|ugo)?\+(x|rx|xr) (\.\/)?hello\.sh$/, /^chmod 0?[57][0-7]{2} (\.\/)?hello\.sh$/],
-      explain: 'The file is not executable yet. `chmod +x hello.sh` gives it the `x` (execute) permission, and from then on `./hello.sh` runs it like any other program.',
+      kind: 'task',
+      prompt: 'Write a script called `bye.sh` in your home folder that prints `Goodbye`. Its first line should tell Linux to run it with bash.',
+      hint: 'Open the new file in nano. The first line starts with `#!`, followed by the full path of bash.',
+      solution: ['nano bye.sh', ...typeInNano(BYE, 'the two lines of the script')],
+      explain:
+        '`#!/bin/bash` on the first line says which program runs the file, and the `echo` line does the work. Run it with `bash bye.sh`, or make it executable first and run `./bye.sh`.',
+      check: all(isFile('bye.sh'), fileContains('bye.sh', BASH_SHEBANG), fileContains('bye.sh', /^\s*(echo|printf)\b.*goodbye/im)),
     },
     {
-      prompt: '`greet.sh` contains:\n\n```\n#!/bin/bash\necho "Hello, $1"\necho "Number of names: $#"\n```\n\nWhat does `./greet.sh "Ada Lovelace" Grace` print?',
-      options: [
-        '`Hello, Ada` and `Number of names: 3`',
-        '`Hello, Ada Lovelace` and `Number of names: 3`',
-        '`Hello, Ada Lovelace` and `Number of names: 2`',
-        '`Hello, $1` and `Number of names: $#`',
-      ],
-      answer: 2,
-      explain:
-        'The quotes hold `Ada Lovelace` together as one argument, so `$1` is `Ada Lovelace`, and `$#`, the number of arguments, is 2. Without the quotes there would be three: `Ada`, `Lovelace` and `Grace`.',
+      kind: 'task',
+      prompt: 'Your home folder has a script called `cheer.sh`, but running it as `./cheer.sh` fails with *Permission denied*. Fix that, then run it that way.',
+      hint: 'The file is missing one permission: the one that lets you run it as a program.',
+      solution: ['chmod +x cheer.sh', './cheer.sh'],
+      explain: '`chmod +x` gave the file the `x` (execute) permission. Together with its shebang line, that lets you run the script like any other program.',
+      check: all(isExecutable('cheer.sh'), ran('cheer.sh', { status: 0 })),
     },
     {
-      prompt: 'Your script now lives in `~/bin/greet`. Which line puts `~/bin` on your `PATH` and keeps everything that was already there?',
-      options: ['`export PATH="$HOME/bin"`', '`export PATH = "$HOME/bin:$PATH"`', '`export $PATH="$HOME/bin:$PATH"`', '`export PATH="$HOME/bin:$PATH"`'],
-      answer: 3,
+      kind: 'task',
+      prompt: 'The script `welcome.sh` (it is already executable) welcomes whoever you name as its first argument. Run it so that it prints `Welcome, Ada Lovelace`.',
+      hint: 'Arguments are split at spaces. How can you keep two words together as one argument?',
+      solution: ['./welcome.sh "Ada Lovelace"'],
       explain:
-        'The `:$PATH` at the end keeps the old list after your own folder, so every other command is still found. Leaving it out would throw that list away (even `cat` would stop working), and the other two break the variable rules: no spaces around `=`, and no `$` in front of the name being set.',
+        'The quotes hold `Ada Lovelace` together as one argument, so `$1` is the whole name. Without them, `$1` would be just `Ada`, and `Lovelace` would arrive separately, as `$2`.',
+      check: all(ranScript('welcome.sh', { minArgs: 1 }), outputIncludes('Welcome, Ada Lovelace')),
+    },
+    {
+      kind: 'task',
+      prompt: 'The folder `~/tools` holds a program called `hey`. Add that folder to your `PATH`, keeping everything that is already in it, so that typing just `hey` works in any folder.',
+      hint: 'Set `PATH` to the new folder, a colon, and the old value of `PATH`.',
+      solution: ['export PATH="$HOME/tools:$PATH"'],
+      explain:
+        'The shell now also looks in `~/tools` when you type a command name: try `cd /tmp`, then `hey`. Leaving out the `:$PATH` would have thrown the old list away, and then even `ls` would no longer be found.',
+      check: pathIncludesTools,
     },
   ],
   recap: `
@@ -253,6 +297,35 @@ const IF_RE = /\bif\b[\s\S]*\bthen\b[\s\S]*\bfi\b/;
 function ifWith(test: RegExp): Check {
   return (c) => !!c.ev && !c.ev.syntaxError && IF_RE.test(c.ev.line) && test.test(c.ev.line);
 }
+
+const FOR_RE = /\bfor\b[\s\S]*\bin\b[\s\S]*\bdo\b[\s\S]*\bdone\b/;
+
+/** The .txt files in ~/project. */
+const TXT_FILES = ['notes.txt', 'todo.txt', 'ideas.txt'];
+
+/** A script for the quiz to fix: no spaces inside the brackets. */
+const CHECK_SH = `#!/bin/bash
+# check.sh: are the meeting notes here?
+if [-f notes.txt]; then
+  echo "Found the notes"
+else
+  echo "No notes here"
+fi
+`;
+
+/**
+ * The last command tested for `archive` and ran `mkdir` only when needed (an
+ * `if`, or the short `[ -d archive ] || mkdir archive`), and the folder exists.
+ * A `mkdir` that failed (the folder was already there) means the test was wrong.
+ */
+const madeArchive: Check = (c) =>
+  !!c.ev &&
+  !c.ev.syntaxError &&
+  (IF_RE.test(c.ev.line) || /&&|\|\|/.test(c.ev.line)) &&
+  /(\[\[?|\btest)\s[^;]*\barchive\b/.test(c.ev.line) &&
+  /\bmkdir\b/.test(c.ev.line) &&
+  !c.ev.execs.some((e) => e.argv[0] === 'mkdir' && e.status !== 0) &&
+  isDir('project/archive')(c);
 
 export const scriptLogic: Lesson = {
   id: 'script-logic',
@@ -390,40 +463,75 @@ ${NANO_SAVE}`,
       check: all(ranScript('backup.sh'), isFile('project/backup/notes.txt'), isFile('project/backup/todo.txt'), isFile('project/backup/ideas.txt')),
     },
   ],
+  quizSetup: (env) => {
+    env.file('project/check.sh', CHECK_SH, { mode: 0o775 });
+  },
   quiz: [
     {
-      prompt: 'You type `if [-f notes.txt]; then echo "Found it"; fi` and get `[-f: command not found`. Why?',
-      options: [
-        'There is no file called `notes.txt` in this folder, so the test failed',
-        'An `if` must always have an `else` part, even if it does nothing',
-        '`[` is a command, so it needs a space after it, and `]` needs a space before it',
-        'File names in a test must be in quotes, as in `"notes.txt"`',
-      ],
-      answer: 2,
-      explain: '`[` is a command (its other name is `test`), and the shell splits words at spaces, so `[-f` looked like the name of an unknown command. Write the test as `[ -f notes.txt ]`.',
+      kind: 'task',
+      prompt: 'Using `if`, write one line that creates a folder called `archive`, but only when there is no folder of that name here yet.',
+      hint: 'Test for a folder with `-d`, and remember that `!` turns a test around.',
+      solution: ['if [ ! -d archive ]; then mkdir archive; fi'],
+      explain:
+        '`[ ! -d archive ]` is true only while there is no folder called `archive`, so this time `mkdir` ran. Run the same line again: now the test is false, so nothing happens, and there is no error either.',
+      check: madeArchive,
     },
     {
-      prompt: 'What does this print?\n\n```\nn=1\nwhile [ $n -le 3 ]; do\n  echo "Lap $n"\n  n=$((n + 1))\ndone\n```',
-      options: ['`Lap 1` and `Lap 2`', '`Lap 1`, `Lap 2` and `Lap 3`', '`Lap 1`, `Lap 2`, `Lap 3` and `Lap 4`', '`Lap 1` over and over, until you press <kbd>Ctrl</kbd>+<kbd>C</kbd>'],
-      answer: 1,
-      explain: '`-le` means *less than or equal to*, so the loop runs while `n` is 1, 2 or 3. Each lap adds one to `n`, and once it reaches 4 the test is false and the loop stops.',
+      kind: 'task',
+      prompt: 'Use a `for` loop to make a copy of every `.txt` file in this folder, with `.bak` added to the end of its name: `notes.txt` gets a copy called `notes.txt.bak`, and so on.',
+      hint: 'Loop over the `.txt` files with a wildcard. Inside the loop, the name of the copy is the loop variable with `.bak` added.',
+      solution: ['for f in *.txt; do cp "$f" "$f.bak"; done'],
+      explain:
+        'The wildcard `*.txt` turned into the list of text files, and the loop ran `cp` once for each of them, with `$f` holding the next name every time. The quotes around `"$f"` keep names that contain spaces in one piece.',
+      check: all(
+        (c) => !!c.ev && !c.ev.syntaxError && FOR_RE.test(c.ev.line),
+        ...TXT_FILES.map((f): Check => (c) => fileText(c, `project/${f}`) !== null && fileText(c, `project/${f}.bak`) === fileText(c, `project/${f}`)),
+        missing('project/budget.csv.bak'),
+      ),
+    },
+    {
+      kind: 'task',
+      prompt: 'Use a `while` loop to count down: print `3`, `2` and `1`, one number per line.',
+      hint: 'Start a variable at 3. Each time round, print it and take one away, and stop once it gets to 0.',
+      solution: ['n=3', 'while [ $n -gt 0 ]; do echo $n; n=$((n - 1)); done'],
+      explain:
+        'Each time round, the loop printed `n` and took one away from it with `$(( ))`. Once `n` reached 0, the test `[ $n -gt 0 ]` was false and the loop stopped. Without the subtraction, it would have printed `3` forever.',
+      check: all(
+        lineMatches(/\b(while|until)\b[\s\S]*\bdo\b[\s\S]*\bdone\b/),
+        not(interrupted()),
+        (c) => !!c.ev && !c.ev.syntaxError && c.ev.output.trim().split(/\s*\n\s*/).join(',') === '3,2,1',
+      ),
+    },
+    {
+      kind: 'task',
+      prompt: 'The script `check.sh` in this folder should print `Found the notes` when there is a `notes.txt` here, but its `if` line has a mistake. Fix the script, then run it.',
+      hint: 'Run it once and read the error message. Remember that `[` is a command, and the shell splits words at spaces.',
+      solution: [
+        'nano check.sh',
+        { keys: '\x1b[B\x1b[B', label: 'Press ↓ twice to reach the if line', delay: 400 },
+        { keys: '\x0b', label: 'Press Ctrl+K to cut that line' },
+        { keys: 'if [ -f notes.txt ]; then\r', label: 'Type the line again, with spaces inside the brackets' },
+        { keys: '\x0f', label: 'Press Ctrl+O to save' },
+        { keys: '\r', label: 'Press Enter to keep the file name' },
+        { keys: '\x18', label: 'Press Ctrl+X to exit nano' },
+        './check.sh',
+      ],
+      explain:
+        "Written as `[-f`, the test looked like a command called `[-f`, which doesn't exist, so the `if` failed and the `else` part ran. `[` is a command, so it needs a space after it, and `]` is its last argument, so it needs a space before it.",
+      check: all(
+        ranScript('check.sh'),
+        outputIncludes('Found the notes'),
+        not(outputIncludes('command not found')),
+        fileContains('project/check.sh', IF_RE),
+        fileContains('project/check.sh', /notes\.txt/),
+      ),
     },
     {
       prompt: '`temp` holds a number. Which test is true only when it is greater than 25?',
-      options: ['`[ "$temp" -gt 25 ]`', '`[ "$temp" > 25 ]`', '`[ "$temp" -ge 25 ]`', '`[ "$temp" = 25 ]`'],
-      answer: 0,
+      options: ['`[ "$temp" > 25 ]`', '`[ "$temp" -ge 25 ]`', '`[ "$temp" = 25 ]`', '`[ "$temp" -gt 25 ]`'],
+      answer: 3,
       explain:
         '`-gt` means *greater than*, while `-ge` is also true for exactly 25. Inside `[ ]` a `>` is a redirection: it quietly creates a file called `25`, and the test then comes out true for any temperature.',
-    },
-    {
-      kind: 'command',
-      prompt: 'Type a one-line `for` loop that prints the name of every `.txt` file in the current folder, one per line. Use `f` as the loop variable and `echo` to print.',
-      accept: [
-        'for f in *.txt; do echo "$f"; done',
-        /^for f in \*\.txt ?; ?do echo (\$f|\$\{f\}|"\$f"|"\$\{f\}") ?; ?done$/,
-        /^for f in \*\.txt ?; ?do echo "[^"$]*(\$f\b|\$\{f\})[^"]*" ?; ?done$/,
-      ],
-      explain: 'The wildcard `*.txt` turns into the list of matching files, and the loop runs the commands between `do` and `done` once for each of them, with `$f` holding the next name every time.',
     },
   ],
   recap: `

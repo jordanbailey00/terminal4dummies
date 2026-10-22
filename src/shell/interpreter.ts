@@ -846,7 +846,12 @@ export class Shell {
       status = await this.runBuiltin(builtin, argv, temp, rio);
     } else {
       const found = this.findCommand(name);
-      if (!found) {
+      const fgBuiltin = BUILTINS.get('fg');
+      if (!found && name.startsWith('%') && fgBuiltin) {
+        // a job spec on its own (`%1`, `%sleep`) means `fg %1`
+        kind = 'builtin';
+        status = await this.runBuiltin(fgBuiltin, ['fg', ...argv], temp, rio);
+      } else if (!found) {
         kind = 'not-found';
         status = await this.commandNotFound(name, rio);
       } else {
@@ -878,7 +883,13 @@ export class Shell {
     if (name.includes('/')) return name;
     const hashed = this.state.hash.get(name);
     if (hashed) return hashed;
-    const found = findInPath(this.system.fs, name, this.state.get('PATH') ?? '', this.opCtx());
+    // like bash, a PATH entry that starts with ~ means the home folder
+    const home = this.state.get('HOME') ?? '';
+    const path = (this.state.get('PATH') ?? '')
+      .split(':')
+      .map((d) => (d === '~' || d.startsWith('~/') ? home + d.slice(1) : d))
+      .join(':');
+    const found = findInPath(this.system.fs, name, path, this.opCtx());
     if (found) this.state.hash.set(name, found);
     return found;
   }

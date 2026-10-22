@@ -454,7 +454,7 @@ function projectArchive(): BlobData {
       tarEntry('project/README.md', '# Project\n\nA tiny example project that came from a .tar.gz download.\n\nRun ./install.sh to "install" it, or read docs/usage.txt.\n'),
       tarEntry('project/install.sh', '#!/bin/bash\n# Pretend installer\necho "Installing project..."\nsleep 1\necho "Done! Nothing was really installed."\n', 0o755),
       tarEntry('project/docs/', null),
-      tarEntry('project/docs/usage.txt', 'Usage: ./install.sh\n\nThis project does nothing useful. It exists so you can practise\nunpacking archives with: tar -xzf project.tar.gz\n'),
+      tarEntry('project/docs/usage.txt', 'Usage: ./install.sh\n\nThis project does nothing useful. It exists so you can practice\nunpacking archives with: tar -xzf project.tar.gz\n'),
       tarEntry('project/src/', null),
       tarEntry('project/src/hello.sh', '#!/bin/bash\necho "Hello, $USER!"\n', 0o755),
       tarEntry('project/LICENSE', 'Released into the public domain. Do whatever you like with it.\n'),

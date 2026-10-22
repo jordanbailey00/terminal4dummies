@@ -17,12 +17,13 @@ export interface SessionFactoryOptions {
   banner?: string;
   history?: string[];
   startDir?: string;
+  adminHint?: boolean;
 }
 
 export function createLiveSession(opts: SessionFactoryOptions = {}): LiveSession {
   const system = opts.makeSystem ? opts.makeSystem() : createSystem();
   const backend = new XtermBackend();
-  const session = new Session({ system, backend, banner: opts.banner, history: opts.history, startDir: opts.startDir });
+  const session = new Session({ system, backend, banner: opts.banner, history: opts.history, startDir: opts.startDir, adminHint: opts.adminHint });
   return { session, backend, system };
 }
 
