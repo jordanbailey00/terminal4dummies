@@ -229,7 +229,7 @@ export function Reference() {
                               <div key={x.cmd} className="ref-example">
                                 <code>{x.cmd}</code>
                                 <span className="muted">{x.desc}</span>
-                                <button type="button" className="btn" onClick={() => navigate(`/playground?cmd=${encodeURIComponent(x.cmd)}`)} title="Open the playground with this command typed in">
+                                <button type="button" className="btn" onClick={() => navigate(`/?cmd=${encodeURIComponent(x.cmd)}`)} title="Open the emulator with this command typed in">
                                   try
                                 </button>
                               </div>

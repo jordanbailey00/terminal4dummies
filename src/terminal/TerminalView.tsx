@@ -1,4 +1,4 @@
-// The terminal window: xterm.js inside a desktop-style window frame.
+// The terminal window: xterm.js under a thin title bar.
 
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -8,7 +8,7 @@ import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { MobileKeys } from './MobileKeys';
-import { TERMINAL_FONT, TERMINAL_THEME } from './theme';
+import { TERMINAL_FONT, onThemeChange, terminalTheme } from './theme';
 import type { XtermBackend } from './xtermBackend';
 import { readPrefs, writePrefs } from '../state/prefs';
 import type { System } from '../shell/system';
@@ -79,6 +79,10 @@ export function TerminalView({ backend, system, initialTitle = 'Terminal', actio
     let ro: ResizeObserver | null = null;
     let raf = 0;
     const prefs = readPrefs();
+    // switch colors along with the site's light/dark theme
+    const offTheme = onThemeChange(() => {
+      if (term) term.options.theme = terminalTheme();
+    });
 
     const setup = () => {
       if (disposed) return;
@@ -90,7 +94,7 @@ export function TerminalView({ backend, system, initialTitle = 'Terminal', actio
         cursorStyle: 'block',
         allowProposedApi: true,
         scrollback: 5000,
-        theme: TERMINAL_THEME,
+        theme: terminalTheme(),
         macOptionIsMeta: true,
         rightClickSelectsWord: true,
         screenReaderMode: prefs.screenReader,
@@ -175,6 +179,7 @@ export function TerminalView({ backend, system, initialTitle = 'Terminal', actio
 
     return () => {
       disposed = true;
+      offTheme();
       cancelAnimationFrame(raf);
       ro?.disconnect();
       backend.detach();

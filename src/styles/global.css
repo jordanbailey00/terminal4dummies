@@ -4,61 +4,68 @@
   --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --header-h: 40px;
 
-  /* the terminal is always dark */
-  --term-bg: #0e1116;
-  --term-fg: #c9d1db;
-  --term-line: #232a34;
-
-  /* dark (default): the page shares the terminal's background */
-  --bg: #0e1116;
-  --bg-hover: #151a22;
-  --code-bg: #161b23;
-  --line: #232a34;
-  --line-strong: #323b48;
-  --fg: #d9dfe7;
-  --fg-muted: #98a3b3;
-  --fg-faint: #677283;
+  /* dark (default): neutral black, shared by the page and the terminal */
+  --bg: #0c0c0c;
+  --bg-hover: #161616;
+  --code-bg: #181818;
+  --line: #262626;
+  --line-strong: #383838;
+  --fg: #e4e4e4;
+  --fg-muted: #a0a0a0;
+  --fg-faint: #6e6e6e;
   --accent: #4cd97b;
   --accent-dim: rgba(76, 217, 123, 0.13);
   --info: #6cb2ff;
   --warn: #e5b94e;
   --danger: #ff7a7a;
+  --term-bg: #0c0c0c;
+  --term-fg: #e4e4e4;
+  --term-line: #262626;
+  --term-chrome: #7a7a7a;
   color-scheme: dark;
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
     --bg: #fafafa;
-    --bg-hover: #f0f1f3;
-    --code-bg: #eef0f3;
-    --line: #dfe2e7;
-    --line-strong: #c8ced6;
-    --fg: #1a1f26;
-    --fg-muted: #4d5866;
-    --fg-faint: #7b8593;
+    --bg-hover: #f0f0f0;
+    --code-bg: #eeeeee;
+    --line: #e0e0e0;
+    --line-strong: #cacaca;
+    --fg: #1a1a1a;
+    --fg-muted: #505050;
+    --fg-faint: #7c7c7c;
     --accent: #13803f;
     --accent-dim: rgba(19, 128, 63, 0.1);
     --info: #1f6fd1;
     --warn: #9a6400;
     --danger: #c43c3c;
+    --term-bg: #fafafa;
+    --term-fg: #1f1f1f;
+    --term-line: #e0e0e0;
+    --term-chrome: #7c7c7c;
     color-scheme: light;
   }
 }
 
 :root[data-theme='light'] {
   --bg: #fafafa;
-  --bg-hover: #f0f1f3;
-  --code-bg: #eef0f3;
-  --line: #dfe2e7;
-  --line-strong: #c8ced6;
-  --fg: #1a1f26;
-  --fg-muted: #4d5866;
-  --fg-faint: #7b8593;
+  --bg-hover: #f0f0f0;
+  --code-bg: #eeeeee;
+  --line: #e0e0e0;
+  --line-strong: #cacaca;
+  --fg: #1a1a1a;
+  --fg-muted: #505050;
+  --fg-faint: #7c7c7c;
   --accent: #13803f;
   --accent-dim: rgba(19, 128, 63, 0.1);
   --info: #1f6fd1;
   --warn: #9a6400;
   --danger: #c43c3c;
+  --term-bg: #fafafa;
+  --term-fg: #1f1f1f;
+  --term-line: #e0e0e0;
+  --term-chrome: #7c7c7c;
   color-scheme: light;
 }
 
@@ -368,7 +375,7 @@ kbd {
   flex: none;
   padding: 0 8px 0 12px;
   border-bottom: 1px solid var(--term-line);
-  color: #7d8796;
+  color: var(--term-chrome);
   font-family: var(--font-mono);
   font-size: 12px;
   user-select: none;
@@ -389,13 +396,13 @@ kbd {
   padding: 0 7px;
   border: 0;
   background: transparent;
-  color: #7d8796;
+  color: var(--term-chrome);
   font: inherit;
   cursor: pointer;
 }
 .term-actions button:hover {
-  color: #e3e8ef;
-  background: rgba(255, 255, 255, 0.07);
+  color: var(--term-fg);
+  background: var(--bg-hover);
 }
 .term-body {
   flex: 1;
@@ -421,17 +428,17 @@ kbd {
   min-width: 38px;
   height: 32px;
   padding: 0 9px;
-  border: 1px solid #323b48;
+  border: 1px solid var(--line-strong);
   border-radius: 2px;
   background: transparent;
-  color: #d9dfe7;
+  color: var(--term-fg);
   font-family: var(--font-mono);
   font-size: 13px;
 }
 .mobile-keys button.active {
-  background: #4cd97b;
-  color: #0e1116;
-  border-color: #4cd97b;
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
 }
 
 /* ------------------------------------------------------------- page shell */

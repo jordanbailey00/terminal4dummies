@@ -1,14 +1,13 @@
 import { usePageTitle } from '../components/usePageTitle';
 import { LESSONS, MODULES } from '../lessons';
-import { Link, useLocation } from '../router';
+import { Link } from '../router';
 import { useProgress } from '../state/progress';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** The list of all lessons (also the home page). */
+/** The list of all lessons. */
 export function Learn() {
-  const { pathname } = useLocation();
-  usePageTitle(pathname === '/' ? null : 'Lessons');
+  usePageTitle('Lessons');
   const progress = useProgress();
   const doneCount = LESSONS.filter((l) => progress.lessons[l.id]?.done).length;
   const next = LESSONS.find((l) => !progress.lessons[l.id]?.done);

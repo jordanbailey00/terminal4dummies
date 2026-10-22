@@ -1,4 +1,4 @@
-/* Pages that fill the window (lessons, playground) under the header. */
+/* Pages that fill the window (emulator, lessons) under the header. */
 .main-full {
   height: calc(100dvh - var(--header-h));
 }
@@ -397,14 +397,14 @@
   }
 }
 
-/* -------------------------------------------------------------- playground */
-.playground {
+/* ---------------------------------------------------------------- emulator */
+.emulator {
   position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
 }
-.playground-bar {
+.emulator-bar {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -435,11 +435,11 @@
   color: var(--accent);
   border-color: var(--accent);
 }
-.playground-term {
+.emulator-term {
   flex: 1;
   min-height: 0;
 }
-.playground-tip {
+.emulator-tip {
   position: absolute;
   right: 20px;
   bottom: 20px;
@@ -451,21 +451,21 @@
   border-left-width: 2px;
   background: var(--bg);
 }
-.playground-tip.error {
+.emulator-tip.error {
   border-left-color: var(--danger);
 }
-.playground-tip.info {
+.emulator-tip.info {
   border-left-color: var(--info);
 }
 @media (max-width: 640px) {
-  .playground-tip {
+  .emulator-tip {
     left: 10px;
     right: 10px;
     bottom: 64px;
   }
 }
 
-/* ------------------------------------------------------- reference/glossary */
+/* -------------------------------------------------------------- reference */
 .ref-layout {
   display: grid;
   grid-template-columns: 215px minmax(0, 1fr);
@@ -617,41 +617,4 @@
     grid-column: 1 / -1;
     grid-row: 2;
   }
-}
-
-.letter-index {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 10px;
-  margin: 0 0 18px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-.letter-index a {
-  color: var(--fg-muted);
-}
-.terms {
-  margin: 0;
-}
-.term {
-  padding: 8px 0;
-  border-bottom: 1px solid var(--line);
-}
-.term-letter {
-  margin: 14px 0 4px;
-  color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-.term dt {
-  font-family: var(--font-mono);
-  font-size: 13.5px;
-  font-weight: 600;
-}
-.term dd {
-  margin: 2px 0 0;
-  font-size: 14px;
-}
-.term dd .prose p:last-child {
-  margin-bottom: 0;
 }

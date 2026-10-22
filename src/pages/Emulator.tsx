@@ -8,15 +8,16 @@ import { usePageTitle } from '../components/usePageTitle';
 import { coach, type Tip } from '../lessons/coach';
 import type { Terminal } from '@xterm/xterm';
 
-const KEY = 't4d.playground.v1';
+const KEY = 't4d.emulator.v1';
 
 const IDEAS = ['ls -la', 'cat welcome.txt', 'tree', 'man ls', 'cd Documents', 'grep -r milk .', 'history', 'sudo apt install cowsay', 'top', 'nano notes.txt', 'curl example.com', 'ssh webserver'];
 
-export function Playground() {
-  usePageTitle('Playground');
+/** The terminal emulator on its own (the home page). */
+export function Emulator() {
+  usePageTitle(null);
   const [generation, setGeneration] = useState(0);
   const skipSave = useRef(false);
-  const live = useLiveSession(`playground-${generation}`, () => {
+  const live = useLiveSession(`emulator-${generation}`, () => {
     skipSave.current = false;
     const saved = loadMachine(KEY);
     return createLiveSession({
@@ -37,7 +38,7 @@ export function Playground() {
   const saveTimer = useRef(0);
   const termRef = useRef<Terminal | null>(null);
 
-  // /playground?cmd=... types a command at the prompt (used by "Try it" buttons)
+  // /?cmd=... types a command at the prompt (used by the reference's "try" buttons)
   useEffect(() => {
     if (!live) return;
     const cmd = new URLSearchParams(window.location.search).get('cmd');
@@ -48,7 +49,7 @@ export function Playground() {
         if (!cancelled) live.session.typeAtPrompt(cmd);
       }, 400),
     );
-    window.history.replaceState(null, '', '/playground');
+    window.history.replaceState(null, '', '/');
     return () => {
       cancelled = true;
     };
@@ -75,7 +76,7 @@ export function Playground() {
   }, [live]);
 
   const reset = () => {
-    if (!window.confirm('Reset the playground computer? All files you created here will be erased.')) return;
+    if (!window.confirm('Reset the emulator? All files you created here will be erased.')) return;
     skipSave.current = true;
     clearMachine(KEY);
     setTip(null);
@@ -90,9 +91,9 @@ export function Playground() {
   };
 
   return (
-    <div className="playground">
-      <div className="playground-bar">
-        <h1 className="visually-hidden">Playground</h1>
+    <div className="emulator">
+      <div className="emulator-bar">
+        <h1 className="visually-hidden">Terminal emulator</h1>
         <span>files are kept in this browser</span>
         <div className="ideas" aria-label="Example commands">
           <span>try:</span>
@@ -103,7 +104,7 @@ export function Playground() {
           ))}
         </div>
       </div>
-      <div className="playground-term">
+      <div className="emulator-term">
         {live && (
           <TerminalView
             key={generation}
@@ -120,7 +121,7 @@ export function Playground() {
         )}
       </div>
       {tip && (
-        <div className={`coach-tip playground-tip ${tip.kind}`} role="status">
+        <div className={`coach-tip emulator-tip ${tip.kind}`} role="status">
           <div className="coach-head">
             <strong>{tip.kind === 'error' ? `what happened? ${tip.title}` : tip.title}</strong>
             <button type="button" className="coach-close" onClick={() => setTip(null)} aria-label="Dismiss">

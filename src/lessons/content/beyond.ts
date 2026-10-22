@@ -82,7 +82,7 @@ Everything you practised here works on real computers. This last lesson helps yo
   recap: `
 You know how to move around, manage files, read and edit them, chain commands, search, use permissions and sudo, install software, manage processes, write scripts, and work with archives and remote computers.
 
-That is the core of the command line, and it works the same way on millions of servers, laptops and cloud machines. Keep the [playground](/playground) and the [command reference](/reference) handy, and keep experimenting!
+That is the core of the command line, and it works the same way on millions of servers, laptops and cloud machines. Keep the [emulator](/) and the [command reference](/reference) handy, and keep experimenting!
 `,
   cheatsheet: [
     ['echo $SHELL', 'which shell you use'],

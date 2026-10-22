@@ -8,7 +8,7 @@ export function NotFound() {
       <pre>{`learner@sandbox:~$ cd ${typeof window !== 'undefined' ? window.location.pathname : '/'}\nbash: cd: No such file or directory`}</pre>
       <h1>Page not found</h1>
       <p>
-        <Link to="/learn">lessons</Link> · <Link to="/playground">playground</Link>
+        <Link to="/">emulator</Link> · <Link to="/learn">lessons</Link>
       </p>
     </div>
   );

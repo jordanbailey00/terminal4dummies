@@ -14,10 +14,9 @@ function effectiveDark(theme: 'system' | 'light' | 'dark'): boolean {
 }
 
 const NAV = [
-  { to: '/learn', label: 'lessons', match: ['/', '/learn'] },
-  { to: '/playground', label: 'playground', match: ['/playground'] },
+  { to: '/', label: 'emulator', match: ['/'] },
+  { to: '/learn', label: 'lessons', match: ['/learn'] },
   { to: '/reference', label: 'commands', match: ['/reference'] },
-  { to: '/glossary', label: 'glossary', match: ['/glossary'] },
 ];
 
 export function Header() {
@@ -37,7 +36,7 @@ export function Header() {
 
   return (
     <header className="site-header">
-      <Link to="/" className="brand" aria-label="terminal4dummies: lessons">
+      <Link to="/" className="brand" aria-label="terminal4dummies: emulator">
         <span className="brand-long">
           terminal<b>4</b>dummies
         </span>
